@@ -47,7 +47,7 @@ from state import AgentState, initial_state
 app = FastAPI(
     title="Local AI Research Agent API",
     description="Fully offline, stateful multi-agent research system powered by LangGraph + Ollama.",
-    version="1.0.0",
+    version="1.0.0",    
     docs_url="/docs",
     redoc_url="/redoc",
 )

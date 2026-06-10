@@ -124,8 +124,32 @@ AI-Research-Agent/
 ### Prerequisites
 
 - Python 3.11+
-- [Ollama](https://ollama.ai) installed and running
-- ~4 GB RAM for Mistral 7B
+- Ollama installed and running
+- Windows, Linux, or macOS
+- Internet connection required only for:
+  - downloading Ollama models
+  - downloading HuggingFace embedding models on first run
+  - optional DuckDuckGo web search
+
+### Recommended Hardware
+
+| Configuration | Minimum | Recommended |
+|--------------|----------|-------------|
+| RAM | 8 GB | 16 GB+ |
+| CPU | 4 cores | 6+ cores |
+| Storage | 5 GB free | 10+ GB free |
+| GPU | Not required | Optional |
+
+### Ollama Model Recommendations
+
+| Model | RAM Requirement | Recommendation |
+|---------|----------------|---------------|
+| mistral | ~8 GB | Recommended |
+| llama3:8b | ~8–10 GB | Recommended |
+| gemma:2b | ~4 GB | Best for low-end laptops |
+| phi3:mini | ~4 GB | Lightweight alternative |
+
+**Note:** Systems with only 8 GB RAM may need to close browsers and other applications before running larger models. If Ollama reports memory allocation errors, switch to a smaller model such as `gemma:2b` or `phi3:mini`.
 
 ### 1. Clone the repository
 
@@ -196,6 +220,39 @@ streamlit run ui.py
 ```
 
 ---
+
+## ⚠️ Common Issues
+
+### 1. Ollama Memory Allocation Error
+
+Example:
+
+```text
+ggml_backend_cpu_buffer_type_alloc_buffer: failed to allocate buffer
+error loading model
+---
+Cause:
+Insufficient available RAM for the selected model.
+
+Solutions:
+1. Close memory-intensive applications.
+2. Restart Ollama.
+3. Switch to a smaller model
+
+##Bash : ollama pull gemma:2b
+
+Then update:
+
+LLM_MODEL = "gemma:2b"
+
+4. Verify available memory:
+
+Windows:
+##Bash
+systeminfo | findstr /C:"Total Physical Memory"
+
+Linux:
+free -h
 
 ## 🛠️ Usage Guide
 
