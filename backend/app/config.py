@@ -1,4 +1,4 @@
-# AI-Research-Agent/config.py
+# backend/app/config.py
 """
 Central configuration module for the Local AI Research Agent.
 All model names, directory paths, and tunable constants live here.
@@ -8,15 +8,17 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
+from typing import Literal
+
+from pydantic import SecretStr
 from pydantic_settings import BaseSettings
-from pydantic import Field
 
 
 class Settings(BaseSettings):
     # ------------------------------------------------------------------ #
     #  Paths                                                               #
     # ------------------------------------------------------------------ #
-    BASE_DIR: Path = Path(__file__).parent.resolve()
+    BASE_DIR: Path = Path(__file__).resolve().parent.parent   # -> backend/
     DATA_DIR: Path = BASE_DIR / "data"
     UPLOAD_DIR: Path = BASE_DIR / "data" / "uploads"
     FAISS_INDEX_DIR: Path = BASE_DIR / "data" / "faiss_index"
@@ -33,6 +35,23 @@ class Settings(BaseSettings):
     LLM_TEMPERATURE: float = 0.2
     LLM_CONTEXT_WINDOW: int = 8192
     LLM_MAX_TOKENS: int = 4096
+    # Seconds to wait on a single Ollama generation before giving up.
+    OLLAMA_TIMEOUT: float = 300.0
+
+    # ------------------------------------------------------------------ #
+    #  Provider selection (Local Ollama vs Gemini)                         #
+    # ------------------------------------------------------------------ #
+    # Only used when a request does not name a provider. A provider that is
+    # selected but fails is NEVER silently replaced by the other one.
+    DEFAULT_PROVIDER: Literal["ollama", "gemini"] = "ollama"
+    # Optional: may also be supplied at runtime via POST /settings/gemini-key.
+    # Never returned by any endpoint and never logged.
+    GEMINI_API_KEY: SecretStr | None = None
+    # Model names change often; override in .env as needed.
+    GEMINI_MODEL: str = "gemini-2.5-flash"
+    GEMINI_TIMEOUT: float = 60.0
+    # Upload hardening (applies to every upload endpoint)
+    MAX_UPLOAD_MB: int = 50
 
     # ------------------------------------------------------------------ #
     #  Embeddings                                                          #
@@ -60,12 +79,15 @@ class Settings(BaseSettings):
     API_HOST: str = "0.0.0.0"
     API_PORT: int = 8000
     API_RELOAD: bool = True
-    CORS_ORIGINS: list[str] = ["http://localhost:8501", "http://127.0.0.1:8501"]
+    CORS_ORIGINS: list[str] = [
+        "http://localhost:8501", "http://127.0.0.1:8501",   # legacy Streamlit
+        "http://localhost:5173", "http://127.0.0.1:5173",   # Vite / React dev server
+    ]
 
     # ------------------------------------------------------------------ #
     #  Streamlit                                                           #
     # ------------------------------------------------------------------ #
-    STREAMLIT_PORT: int = 8501
+    STREAMLIT_PORT: int = 8501   # legacy UI only
 
     # ------------------------------------------------------------------ #
     #  Logging                                                             #

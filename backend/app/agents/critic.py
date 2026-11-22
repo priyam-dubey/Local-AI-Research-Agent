@@ -16,12 +16,13 @@ from __future__ import annotations
 import re
 from typing import Any
 
-from langchain_ollama import ChatOllama
-from langchain_core.messages import HumanMessage, SystemMessage
+from langchain_core.runnables import RunnableConfig
 from loguru import logger
 
-from config import settings
-from state import AgentState
+from app.config import settings
+from app.state import AgentState
+from app.providers.base import FATAL_PROVIDER_ERRORS, Message
+from app.providers.factory import get_llm
 
 
 # --------------------------------------------------------------------------- #
@@ -58,24 +59,6 @@ Evaluate now:"""
 
 
 # --------------------------------------------------------------------------- #
-# LLM singleton                                                                #
-# --------------------------------------------------------------------------- #
-_llm: ChatOllama | None = None
-
-
-def _get_llm() -> ChatOllama:
-    global _llm
-    if _llm is None:
-        _llm = ChatOllama(
-            base_url=settings.OLLAMA_BASE_URL,
-            model=settings.LLM_MODEL,
-            temperature=0.1,
-            num_ctx=settings.LLM_CONTEXT_WINDOW,
-        )
-    return _llm
-
-
-# --------------------------------------------------------------------------- #
 # Response parser                                                              #
 # --------------------------------------------------------------------------- #
 def _parse_critic_response(raw: str) -> dict:
@@ -104,6 +87,16 @@ def _parse_critic_response(raw: str) -> dict:
     if feedback_match:
         result["critic_feedback"] = feedback_match.group(1).strip()
 
+    # Gaps -> concrete follow-up research steps
+    gaps: list[str] = []
+    gaps_match = re.search(r"GAPS:\s*(.+)$", raw, re.DOTALL)
+    if gaps_match:
+        for line in gaps_match.group(1).splitlines():
+            line = re.sub(r"^\s*(?:[-*\u2022]|\d+[.)])\s*", "", line).strip()
+            if line and line.lower() not in ("none", "none.", "n/a"):
+                gaps.append(line[:160])
+    result["gaps"] = gaps[:3]
+
     # Override verdict based on score threshold for consistency
     if result["quality_score"] >= settings.REFLECTION_THRESHOLD:
         result["needs_more_research"] = False
@@ -114,7 +107,7 @@ def _parse_critic_response(raw: str) -> dict:
 # --------------------------------------------------------------------------- #
 # Node callable                                                                #
 # --------------------------------------------------------------------------- #
-def critic_node(state: AgentState) -> dict[str, Any]:
+def critic_node(state: AgentState, config: RunnableConfig) -> dict[str, Any]:
     """
     LangGraph node: Critic / Reflection Agent.
 
@@ -136,7 +129,8 @@ def critic_node(state: AgentState) -> dict[str, Any]:
     if iteration >= settings.MAX_ITERATIONS:
         logger.warning(f"[{session_id}] MAX_ITERATIONS ({settings.MAX_ITERATIONS}) reached. Forcing completion.")
         return {
-            "quality_score": 1.0,
+            # keep the real last score; never fabricate a perfect one
+            "quality_score": state.get("quality_score", 0.0),
             "needs_more_research": False,
             "critic_feedback": f"Maximum iterations ({settings.MAX_ITERATIONS}) reached. Proceeding with available research.",
             "messages": [
@@ -169,17 +163,24 @@ def critic_node(state: AgentState) -> dict[str, Any]:
     )
 
     try:
-        llm = _get_llm()
-        resp = llm.invoke([
-            SystemMessage(content=_CRITIC_SYSTEM),
-            HumanMessage(content=prompt),
-        ])
-        raw_response = resp.content.strip()
+        llm = get_llm(config)
+        raw_response = llm.generate(
+            [Message("system", _CRITIC_SYSTEM), Message("user", prompt)],
+            temperature=0.1,
+        ).strip()
         parsed = _parse_critic_response(raw_response)
 
         logger.info(
             f"[{session_id}] Critic score={parsed['quality_score']:.2f}, "
             f"needs_more={parsed['needs_more_research']}"
+        )
+
+        # Turn the critic's gaps into extra plan steps (bounded) so a "needs more
+        # research" verdict actually leads to more research.
+        new_steps = (
+            [g for g in parsed.get("gaps", []) if g not in plan]
+            if parsed["needs_more_research"] and iteration + 1 < settings.MAX_ITERATIONS
+            else []
         )
 
         score_emoji = "✅" if parsed["quality_score"] >= settings.REFLECTION_THRESHOLD else "🔄"
@@ -190,14 +191,22 @@ def critic_node(state: AgentState) -> dict[str, Any]:
             f"**Decision:** {'Proceed to finalization' if not parsed['needs_more_research'] else 'Request additional research'}"
         )
 
-        return {
+        if new_steps:
+            message_content += "\n\n**Added research steps:**\n" + "\n".join(f"- {g}" for g in new_steps)
+
+        update: dict[str, Any] = {
             "quality_score": parsed["quality_score"],
             "needs_more_research": parsed["needs_more_research"],
             "critic_feedback": parsed["critic_feedback"],
             "iteration": iteration + 1,
             "messages": [{"role": "critic", "content": message_content}],
         }
+        if new_steps:
+            update["plan"] = plan + new_steps
+        return update
 
+    except FATAL_PROVIDER_ERRORS:
+        raise
     except Exception as exc:
         logger.error(f"[{session_id}] Critic node error: {exc}")
         # Safe default: proceed if we have any research at all

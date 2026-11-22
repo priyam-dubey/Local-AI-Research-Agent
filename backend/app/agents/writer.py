@@ -13,12 +13,13 @@ from __future__ import annotations
 import textwrap
 from typing import Any
 
-from langchain_ollama import ChatOllama
-from langchain_core.messages import HumanMessage, SystemMessage
+from langchain_core.runnables import RunnableConfig
 from loguru import logger
 
-from config import settings
-from state import AgentState
+from app.config import settings
+from app.state import AgentState
+from app.providers.base import FATAL_PROVIDER_ERRORS, Message
+from app.providers.factory import get_llm
 
 
 # --------------------------------------------------------------------------- #
@@ -59,34 +60,21 @@ Write the comprehensive Markdown report now:"""
 
 
 # --------------------------------------------------------------------------- #
-# LLM singleton                                                                #
-# --------------------------------------------------------------------------- #
-_llm: ChatOllama | None = None
-
-
-def _get_llm() -> ChatOllama:
-    global _llm
-    if _llm is None:
-        _llm = ChatOllama(
-            base_url=settings.OLLAMA_BASE_URL,
-            model=settings.LLM_MODEL,
-            temperature=0.3,   # slightly higher for natural prose
-            num_ctx=settings.LLM_CONTEXT_WINDOW,
-            num_predict=settings.LLM_MAX_TOKENS,
-        )
-    return _llm
-
-
-# --------------------------------------------------------------------------- #
 # Evidence formatter                                                           #
 # --------------------------------------------------------------------------- #
-def _format_evidence(blocks: list[dict], citations: list[str]) -> str:
-    """Combine research blocks with their citation numbers."""
+def _format_evidence(blocks: list[dict], citations: list[str], budget: int = 4000) -> str:
+    """
+    Combine research blocks with their citation numbers.
+
+    The character budget is split evenly across blocks so evidence from LATER
+    plan steps is no longer cut off (the old code truncated the tail).
+    """
     lines: list[str] = []
+    per_block = max(100, min(600, budget // max(1, len(blocks))))
     for i, block in enumerate(blocks):
         citation_num = i + 1
         citation_label = citations[i] if i < len(citations) else f"[{citation_num}] Unknown"
-        snippet = block.get("content", "")[:600]
+        snippet = block.get("content", "")[:per_block]
         lines.append(f"{citation_label}\n{snippet}\n")
     return "\n---\n".join(lines) if lines else "No evidence available."
 
@@ -124,9 +112,23 @@ def _build_fallback_report(
 # --------------------------------------------------------------------------- #
 # Node callable                                                                #
 # --------------------------------------------------------------------------- #
-def writer_node(state: AgentState) -> dict[str, Any]:
+def writer_node(state: AgentState, config: RunnableConfig) -> dict[str, Any]:
+    """Legacy entry point: final iff the critic no longer wants more research."""
+    return _write(state, config, final=not state.get("needs_more_research", True))
+
+
+def writer_draft_node(state: AgentState, config: RunnableConfig) -> dict[str, Any]:
+    return _write(state, config, final=False)
+
+
+def writer_final_node(state: AgentState, config: RunnableConfig) -> dict[str, Any]:
+    """Always writes `final_report`, even if the critic was not fully satisfied."""
+    return _write(state, config, final=True)
+
+
+def _write(state: AgentState, config: RunnableConfig, final: bool) -> dict[str, Any]:
     """
-    LangGraph node: Writer Agent.
+    Shared implementation of the Writer Agent.
 
     Reads:  state["query"], state["plan"], state["research_blocks"],
             state["citations"], state["critic_feedback"], state["needs_more_research"]
@@ -138,10 +140,9 @@ def writer_node(state: AgentState) -> dict[str, Any]:
     research_blocks: list[dict] = state.get("research_blocks", [])
     citations: list[str] = state.get("citations", [])
     critic_feedback: str = state.get("critic_feedback", "None yet.")
-    needs_more: bool = state.get("needs_more_research", True)
     iteration: int = state.get("iteration", 0)
 
-    is_final = not needs_more
+    is_final = final
 
     logger.info(
         f"[{session_id}] Writer generating {'FINAL' if is_final else 'DRAFT'} report "
@@ -156,24 +157,26 @@ def writer_node(state: AgentState) -> dict[str, Any]:
         query=query,
         plan=plan_text,
         block_count=len(research_blocks),
-        evidence=evidence_text[:4000],   # hard cap to stay within context window
+        evidence=evidence_text[:12000],   # safety cap; per-block budget already applied
         citations=citations_text,
         critic_feedback=critic_feedback,
     )
 
     try:
-        llm = _get_llm()
-        resp = llm.invoke([
-            SystemMessage(content=_WRITER_SYSTEM),
-            HumanMessage(content=prompt),
-        ])
-        report: str = resp.content.strip()
+        llm = get_llm(config)
+        report: str = llm.generate(
+            [Message("system", _WRITER_SYSTEM), Message("user", prompt)],
+            temperature=0.3,   # slightly higher for natural prose
+            max_tokens=settings.LLM_MAX_TOKENS,
+        ).strip()
 
         # Ensure references section is appended if LLM omitted it
         if "## References" not in report and citations:
             ref_section = "\n\n## References\n" + "\n".join(f"- {c}" for c in citations)
             report += ref_section
 
+    except FATAL_PROVIDER_ERRORS:
+        raise
     except Exception as exc:
         logger.error(f"[{session_id}] Writer LLM call failed: {exc}. Using fallback report.")
         report = _build_fallback_report(query, plan, research_blocks, citations)

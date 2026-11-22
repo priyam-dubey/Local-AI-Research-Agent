@@ -16,14 +16,15 @@ from __future__ import annotations
 import time
 from typing import Any
 
-from langchain_ollama import ChatOllama
-from langchain_core.messages import HumanMessage, SystemMessage
+from langchain_core.runnables import RunnableConfig
 from langchain_community.tools import DuckDuckGoSearchResults
 from loguru import logger
 
-from config import settings
-from state import AgentState
-from rag.vector_store import get_vector_store
+from app.config import settings
+from app.state import AgentState
+from app.rag.vector_store import get_vector_store
+from app.providers.base import FATAL_PROVIDER_ERRORS, Message
+from app.providers.factory import get_llm
 
 
 # --------------------------------------------------------------------------- #
@@ -48,20 +49,7 @@ Synthesize the provided evidence into a dense, factual answer to the sub-task.
 # --------------------------------------------------------------------------- #
 # Singletons                                                                  #
 # --------------------------------------------------------------------------- #
-_llm: ChatOllama | None = None
 _search_tool: DuckDuckGoSearchResults | None = None
-
-
-def _get_llm() -> ChatOllama:
-    global _llm
-    if _llm is None:
-        _llm = ChatOllama(
-            base_url=settings.OLLAMA_BASE_URL,
-            model=settings.LLM_MODEL,
-            temperature=settings.LLM_TEMPERATURE,
-            num_ctx=settings.LLM_CONTEXT_WINDOW,
-        )
-    return _llm
 
 
 def _get_search() -> DuckDuckGoSearchResults:
@@ -77,19 +65,20 @@ def _get_search() -> DuckDuckGoSearchResults:
 # --------------------------------------------------------------------------- #
 # Routing logic                                                                #
 # --------------------------------------------------------------------------- #
-def _decide_route(task: str, has_local_docs: bool) -> str:
+def _decide_route(task: str, has_local_docs: bool, llm) -> str:
     """Return 'local' or 'web' based on LLM judgment + doc availability."""
     if not has_local_docs:
         return "web"
 
     try:
-        llm = _get_llm()
-        resp = llm.invoke([
-            SystemMessage(content=_ROUTING_SYSTEM),
-            HumanMessage(content=f"Sub-task: {task}"),
-        ])
-        decision = resp.content.strip().lower()
+        resp = llm.generate(
+            [Message("system", _ROUTING_SYSTEM), Message("user", f"Sub-task: {task}")],
+            temperature=0.0,
+        )
+        decision = resp.strip().lower()
         return "local" if "local" in decision else "web"
+    except FATAL_PROVIDER_ERRORS:
+        raise
     except Exception as exc:
         logger.warning(f"Routing LLM call failed ({exc}); defaulting to 'web'.")
         return "web"
@@ -173,7 +162,7 @@ def _web_search(task: str) -> tuple[list[dict], list[dict]]:
 # --------------------------------------------------------------------------- #
 # Evidence synthesis                                                           #
 # --------------------------------------------------------------------------- #
-def _synthesize(task: str, blocks: list[dict]) -> str:
+def _synthesize(task: str, blocks: list[dict], llm) -> str:
     """Ask the LLM to synthesize retrieved evidence into a coherent answer."""
     if not blocks:
         return f"No evidence found for: {task}"
@@ -183,16 +172,20 @@ def _synthesize(task: str, blocks: list[dict]) -> str:
     )
 
     try:
-        llm = _get_llm()
-        resp = llm.invoke([
-            SystemMessage(content=_SYNTHESIS_SYSTEM),
-            HumanMessage(content=(
-                f"Sub-task: {task}\n\n"
-                f"Evidence:\n{evidence_text}\n\n"
-                "Write your synthesized answer:"
-            )),
-        ])
-        return resp.content.strip()
+        resp = llm.generate(
+            [
+                Message("system", _SYNTHESIS_SYSTEM),
+                Message("user", (
+                    f"Sub-task: {task}\n\n"
+                    f"Evidence:\n{evidence_text}\n\n"
+                    "Write your synthesized answer:"
+                )),
+            ],
+            temperature=settings.LLM_TEMPERATURE,
+        )
+        return resp.strip()
+    except FATAL_PROVIDER_ERRORS:
+        raise
     except Exception as exc:
         logger.error(f"Synthesis LLM call failed: {exc}")
         # Return raw evidence as fallback
@@ -202,7 +195,7 @@ def _synthesize(task: str, blocks: list[dict]) -> str:
 # --------------------------------------------------------------------------- #
 # Node callable                                                                #
 # --------------------------------------------------------------------------- #
-def researcher_node(state: AgentState) -> dict[str, Any]:
+def researcher_node(state: AgentState, config: RunnableConfig) -> dict[str, Any]:
     """
     LangGraph node: Researcher Agent.
 
@@ -221,12 +214,14 @@ def researcher_node(state: AgentState) -> dict[str, Any]:
     task = plan[idx]
     logger.info(f"[{session_id}] Researcher executing step {idx+1}/{len(plan)}: {task}")
 
+    llm = get_llm(config)   # fails fast (missing key / Ollama down) before any work is done
+
     # Determine if there are locally indexed documents
     vs = get_vector_store()
     has_local = vs is not None
 
     # Route
-    route = _decide_route(task, has_local)
+    route = _decide_route(task, has_local, llm)
     logger.info(f"[{session_id}] Route decision: {route}")
 
     research_blocks: list[dict] = []
@@ -242,7 +237,7 @@ def researcher_node(state: AgentState) -> dict[str, Any]:
         research_blocks, web_results = _web_search(task)
 
     # Synthesize answer
-    synthesis = _synthesize(task, research_blocks)
+    synthesis = _synthesize(task, research_blocks, llm)
 
     # Build citations for new blocks
     existing_count = len(state.get("citations", []))

@@ -15,11 +15,10 @@ from pathlib import Path
 from typing import Optional
 
 from langchain_community.vectorstores import FAISS
-from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_core.documents import Document
 from loguru import logger
 
-from config import settings
+from app.config import settings
 
 
 # --------------------------------------------------------------------------- #
@@ -27,17 +26,25 @@ from config import settings
 # --------------------------------------------------------------------------- #
 _lock = threading.Lock()
 _vector_store: Optional[FAISS] = None
-_embeddings: Optional[HuggingFaceEmbeddings] = None
+_embeddings = None   # HuggingFaceEmbeddings (or a test double)
 _doc_count: int = 0
 
 
 # --------------------------------------------------------------------------- #
 # Embeddings factory                                                           #
 # --------------------------------------------------------------------------- #
-def _get_embeddings() -> HuggingFaceEmbeddings:
+def set_embeddings(embeddings) -> None:
+    """Override the embedding model (used by tests; embeddings are independent of the LLM provider)."""
+    global _embeddings
+    _embeddings = embeddings
+
+
+def _get_embeddings():
     """Lazy-initialize the embedding model (downloads on first call)."""
     global _embeddings
     if _embeddings is None:
+        from langchain_huggingface import HuggingFaceEmbeddings   # lazy: heavy (torch)
+
         logger.info(f"Loading embedding model: {settings.EMBED_MODEL}")
         _embeddings = HuggingFaceEmbeddings(
             model_name=settings.EMBED_MODEL,

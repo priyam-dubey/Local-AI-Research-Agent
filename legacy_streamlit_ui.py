@@ -29,7 +29,11 @@ from reportlab.platypus import (
 )
 from reportlab.lib import colors
 
-from config import settings
+import os
+
+
+class settings:  # shim: config moved to backend/app/config.py
+    API_PORT = int(os.getenv("API_PORT", "8000"))
 
 
 # --------------------------------------------------------------------------- #

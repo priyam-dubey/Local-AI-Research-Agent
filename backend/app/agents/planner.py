@@ -13,12 +13,13 @@ import json
 import re
 from typing import Any
 
-from langchain_ollama import ChatOllama
-from langchain_core.messages import HumanMessage, SystemMessage
+from langchain_core.runnables import RunnableConfig
 from loguru import logger
 
-from config import settings
-from state import AgentState
+from app.config import settings
+from app.state import AgentState
+from app.providers.base import FATAL_PROVIDER_ERRORS, Message
+from app.providers.factory import get_llm
 
 
 # --------------------------------------------------------------------------- #
@@ -43,24 +44,6 @@ Example output:
 """
 
 _HUMAN_TEMPLATE = "Research question: {query}\n\nGenerate the research plan now:"
-
-
-# --------------------------------------------------------------------------- #
-# LLM factory (lazy singleton per process)                                    #
-# --------------------------------------------------------------------------- #
-_llm: ChatOllama | None = None
-
-
-def _get_llm() -> ChatOllama:
-    global _llm
-    if _llm is None:
-        _llm = ChatOllama(
-            base_url=settings.OLLAMA_BASE_URL,
-            model=settings.LLM_MODEL,
-            temperature=0.1,          # low temp → deterministic, structured output
-            num_ctx=settings.LLM_CONTEXT_WINDOW,
-        )
-    return _llm
 
 
 # --------------------------------------------------------------------------- #
@@ -103,7 +86,7 @@ def _parse_plan(raw: str) -> list[str]:
 # --------------------------------------------------------------------------- #
 # Node callable                                                                #
 # --------------------------------------------------------------------------- #
-def planner_node(state: AgentState) -> dict[str, Any]:
+def planner_node(state: AgentState, config: RunnableConfig) -> dict[str, Any]:
     """
     LangGraph node: Planner Agent.
 
@@ -115,13 +98,14 @@ def planner_node(state: AgentState) -> dict[str, Any]:
     logger.info(f"[{session_id}] Planner starting for query: {query[:80]}...")
 
     try:
-        llm = _get_llm()
-        messages = [
-            SystemMessage(content=_SYSTEM_PROMPT),
-            HumanMessage(content=_HUMAN_TEMPLATE.format(query=query)),
-        ]
-        response = llm.invoke(messages)
-        raw_content: str = response.content if hasattr(response, "content") else str(response)
+        llm = get_llm(config)
+        raw_content: str = llm.generate(
+            [
+                Message("system", _SYSTEM_PROMPT),
+                Message("user", _HUMAN_TEMPLATE.format(query=query)),
+            ],
+            temperature=0.1,   # low temp -> deterministic, structured output
+        )
         plan = _parse_plan(raw_content)
 
         logger.info(f"[{session_id}] Planner produced {len(plan)} steps: {plan}")
@@ -140,6 +124,8 @@ def planner_node(state: AgentState) -> dict[str, Any]:
             ],
         }
 
+    except FATAL_PROVIDER_ERRORS:
+        raise
     except Exception as exc:
         logger.error(f"[{session_id}] Planner failed: {exc}")
         fallback_plan = [
