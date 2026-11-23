@@ -113,23 +113,22 @@ def test_pdf_export_survives_markup_characters():
     assert generate_pdf(md, "q & <x>").startswith(b"%PDF")
 
 
-# ---- upload hardening (legacy endpoint) ---------------------------------- #
-def test_upload_path_traversal_is_neutralised(tmp_path, monkeypatch):
-    monkeypatch.setattr(settings, "UPLOAD_DIR", tmp_path)
-    monkeypatch.setattr("app.api.routes.ingest.ingest_file", lambda p: {"source": p.name, "chunks_added": 1})
-    r = client.post("/ingest/file", files={"file": ("../../evil.txt", b"hello world", "text/plain")})
-    assert r.status_code == 200
-    saved = list(tmp_path.iterdir())
-    assert len(saved) == 1 and saved[0].resolve().parent == tmp_path.resolve()
-    assert not (tmp_path.parent.parent / "evil.txt").exists()
+# ---- upload hardening (legacy endpoint, now backed by the default workspace) ---- #
+def test_upload_path_traversal_is_neutralised(tmp_path):
+    body = b"Hello world. This is a plain text document with enough words to be indexed properly."
+    r = client.post("/ingest/file", files={"file": ("../../evil.txt", body, "text/plain")})
+    assert r.status_code == 200 and r.json()["source"] == "evil.txt"
+    assert not (tmp_path.parent / "evil.txt").exists()
+    assert list(settings.UPLOAD_DIR.iterdir()) == []          # temp file cleaned up
 
 
-def test_upload_size_limit_enforced_and_partial_file_removed(tmp_path, monkeypatch):
-    monkeypatch.setattr(settings, "UPLOAD_DIR", tmp_path)
+def test_upload_size_limit_enforced_and_partial_file_removed(monkeypatch):
     monkeypatch.setattr(settings, "MAX_UPLOAD_MB", 0)
     r = client.post("/ingest/file", files={"file": ("a.txt", b"x" * 10, "text/plain")})
-    assert r.status_code == 413 and list(tmp_path.iterdir()) == []
+    assert r.status_code == 413 and r.json()["error"]["code"] == "file_too_large"
+    assert list(settings.UPLOAD_DIR.iterdir()) == []
 
 
 def test_upload_rejects_disallowed_type():
-    assert client.post("/ingest/file", files={"file": ("a.exe", b"MZ", "application/octet-stream")}).status_code == 415
+    r = client.post("/ingest/file", files={"file": ("a.exe", b"MZ", "application/octet-stream")})
+    assert r.status_code == 415

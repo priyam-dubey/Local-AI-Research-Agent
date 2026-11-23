@@ -14,16 +14,18 @@ from fastapi.middleware.cors import CORSMiddleware
 from loguru import logger
 
 from app.api.errors import register_error_handlers
-from app.api.routes import ingest, research, settings as settings_routes
+from app.api.routes import chat, documents, ingest, research, settings as settings_routes, system
 from app.config import settings
-from app.rag.vector_store import load_persisted_index
+from app.services import document_service, repo
 
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     logger.info("Starting AI Research Agent API...")
-    if load_persisted_index():
-        logger.info("Persisted FAISS index restored.")
+    repo.init_db()
+    if (n := repo.recover_interrupted()):
+        logger.warning(f"{n} document(s) were interrupted by the last shutdown and marked failed.")
+    document_service.cleanup_stale_uploads()
     yield
 
 
@@ -39,6 +41,9 @@ app.add_middleware(
 )
 register_error_handlers(app)
 app.include_router(settings_routes.router)
+app.include_router(system.router)
+app.include_router(documents.router)
+app.include_router(chat.router)
 app.include_router(research.router)
 app.include_router(ingest.router)
 

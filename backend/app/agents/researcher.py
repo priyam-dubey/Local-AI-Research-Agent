@@ -22,7 +22,7 @@ from loguru import logger
 
 from app.config import settings
 from app.state import AgentState
-from app.rag.vector_store import get_vector_store
+from app.rag import retrieval
 from app.providers.base import FATAL_PROVIDER_ERRORS, Message
 from app.providers.factory import get_llm
 
@@ -87,29 +87,33 @@ def _decide_route(task: str, has_local_docs: bool, llm) -> str:
 # --------------------------------------------------------------------------- #
 # Local retrieval                                                              #
 # --------------------------------------------------------------------------- #
-def _local_search(task: str) -> list[dict]:
-    """Query the FAISS index and return formatted evidence blocks."""
-    vs = get_vector_store()
-    if vs is None:
-        return []
+def _has_local_docs(workspace_id: str | None) -> bool:
+    return bool(workspace_id) and retrieval.workspace_has_docs(workspace_id)
 
+
+def _local_search(task: str, workspace_id: str | None) -> list[dict]:
+    """
+    Query the selected workspace's FAISS index. Only passages above the relevance
+    threshold count as evidence, so an unrelated index no longer blocks the
+    web fallback (v1 always returned top-k, however irrelevant).
+    """
+    if not _has_local_docs(workspace_id):
+        return []
     try:
-        docs_and_scores = vs.similarity_search_with_score(task, k=settings.RETRIEVER_TOP_K)
         blocks: list[dict] = []
-        for doc, score in docs_and_scores:
-            source = doc.metadata.get("source", "Unknown")
-            page = doc.metadata.get("page", "")
-            page_info = f", Page {page}" if page else ""
-            blocks.append({
-                "content": doc.page_content,
-                "source": f"{source}{page_info}",
-                "score": float(score),
-                "type": "local",
-            })
-        logger.info(f"Local retrieval returned {len(blocks)} blocks.")
+        hits = retrieval.search(workspace_id, task, k=settings.RETRIEVER_TOP_K)
+        if not retrieval.assess_evidence(task, hits).sufficient:      # same evidence gate as document QA
+            logger.info("Local documents are not relevant to this step; web fallback allowed.")
+            return []
+        for h in hits:
+            c = h.chunk
+            where = f"Page {c['page']}" if c.get("page") else c.get("location", "")
+            blocks.append({"content": c["text"], "source": f"{c['filename']}, {where}".rstrip(", "),
+                           "score": h.score, "type": "local"})
+        logger.info(f"Local retrieval returned {len(blocks)} relevant block(s).")
         return blocks
     except Exception as exc:
-        logger.error(f"Local retrieval error: {exc}")
+        logger.error(f"Local retrieval error: {type(exc).__name__}")
         return []
 
 
@@ -217,8 +221,8 @@ def researcher_node(state: AgentState, config: RunnableConfig) -> dict[str, Any]
     llm = get_llm(config)   # fails fast (missing key / Ollama down) before any work is done
 
     # Determine if there are locally indexed documents
-    vs = get_vector_store()
-    has_local = vs is not None
+    workspace_id = (config.get("configurable") or {}).get("workspace_id")
+    has_local = _has_local_docs(workspace_id)
 
     # Route
     route = _decide_route(task, has_local, llm)
@@ -228,7 +232,7 @@ def researcher_node(state: AgentState, config: RunnableConfig) -> dict[str, Any]
     web_results: list[dict] = []
 
     if route == "local":
-        research_blocks = _local_search(task)
+        research_blocks = _local_search(task, workspace_id)
         if not research_blocks:
             # Fallback to web if local returns nothing
             logger.info(f"[{session_id}] Local empty; falling back to web search.")

@@ -67,9 +67,9 @@ def create_provider(sel: LLMSelection) -> BaseLLM:
 
 
 # ---- LangGraph integration ------------------------------------------------ #
-def selection_to_config(sel: LLMSelection) -> dict[str, Any]:
-    """RunnableConfig fragment carrying only provider+model (never a key)."""
-    return {"configurable": {"llm_provider": sel.provider, "llm_model": sel.model}}
+def selection_to_config(sel: LLMSelection, workspace_id: Optional[str] = None) -> dict[str, Any]:
+    """RunnableConfig fragment carrying provider+model (+ optional workspace) – never a key."""
+    return {"configurable": {"llm_provider": sel.provider, "llm_model": sel.model, "workspace_id": workspace_id}}
 
 
 def get_llm(config: Optional[dict] = None) -> BaseLLM:

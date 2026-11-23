@@ -52,6 +52,25 @@ class Settings(BaseSettings):
     GEMINI_TIMEOUT: float = 60.0
     # Upload hardening (applies to every upload endpoint)
     MAX_UPLOAD_MB: int = 50
+    MAX_UPLOADS_PER_REQUEST: int = 20
+    MAX_PDF_PAGES: int = 1000
+
+    # ------------------------------------------------------------------ #
+    #  Document intelligence                                               #
+    # ------------------------------------------------------------------ #
+    WORKSPACES_DIR: Path = BASE_DIR / "data" / "workspaces"
+    DB_PATH: Path = BASE_DIR / "data" / "app.db"
+    # "hf" = local sentence-transformers model (production). "hashing" = tiny
+    # dependency-free lexical embedder for CI / offline smoke tests only.
+    EMBEDDING_BACKEND: Literal["hf", "hashing"] = "hf"
+    QA_TOP_K: int = 6
+    # Evidence gates for document-grounded answers. These are STARTING VALUES for
+    # all-MiniLM-L6-v2 cosine similarity; calibrate on your own documents with
+    # `python -m scripts.calibrate_thresholds` (see README).
+    RETRIEVAL_MIN_SIMILARITY: float = 0.30      # below this a chunk is not evidence
+    RETRIEVAL_STRONG_SIMILARITY: float = 0.55   # above this lexical check is waived
+    EVIDENCE_MIN_TERM_COVERAGE: float = 0.34    # share of question terms found in evidence
+    CSV_ROWS_PER_CHUNK: int = 25
 
     # ------------------------------------------------------------------ #
     #  Embeddings                                                          #
@@ -108,6 +127,7 @@ settings = Settings()
 for _dir in (
     settings.DATA_DIR,
     settings.UPLOAD_DIR,
+    settings.WORKSPACES_DIR,
     settings.FAISS_INDEX_DIR,
     settings.REPORTS_DIR,
     settings.LOG_DIR,

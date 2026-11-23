@@ -13,7 +13,7 @@ from pydantic import BaseModel, Field
 from sse_starlette.sse import EventSourceResponse
 
 from app.providers.factory import resolve_selection
-from app.services import research_service as svc
+from app.services import repo, research_service as svc
 from app.services.export_service import generate_pdf
 from app.state import AgentState, initial_state
 
@@ -27,6 +27,8 @@ class ResearchRequest(BaseModel):
     # a failing provider is never replaced by the other one.
     provider: Optional[Literal["ollama", "gemini"]] = None
     model: Optional[str] = Field(None, max_length=100)
+    # Optional: use this workspace's uploaded documents as local evidence.
+    workspace_id: Optional[str] = Field(None, pattern=r"^[a-z0-9\-]{1,40}$")
 
 
 class ResearchResponse(BaseModel):
@@ -49,15 +51,23 @@ async def start_research(request: ResearchRequest, background_tasks: BackgroundT
     if session_id in svc.sessions:
         raise HTTPException(status_code=409, detail=f"Session {session_id} already exists.")
 
+    if request.workspace_id:
+        repo.get_workspace(request.workspace_id)      # 404 if unknown
     await svc.preflight(sel)     # meaningful 4xx/5xx before any work starts
 
     state = initial_state(query=request.query, session_id=session_id)
-    svc.new_session(session_id, state, sel)
-    background_tasks.add_task(svc.run_session, session_id, state, sel)
+    svc.new_session(session_id, state, sel, request.workspace_id)
+    background_tasks.add_task(svc.run_session, session_id, state, sel, request.workspace_id)
     return ResearchResponse(
         session_id=session_id, status="running", provider=sel.provider,
         message=f"Research session started. Stream events at /research/{session_id}/stream",
     )
+
+
+@router.get("")
+async def research_history(limit: int = 50) -> list[dict]:
+    """Completed research sessions (persisted), newest first."""
+    return repo.list_research(min(max(limit, 1), 200))
 
 
 @router.get("/{session_id}/stream")
@@ -82,6 +92,13 @@ async def stream_research(session_id: str) -> EventSourceResponse:
 
 @router.get("/{session_id}/result")
 async def get_result(session_id: str) -> dict:
+    if session_id not in svc.sessions:                      # after a restart: serve from history
+        saved = repo.get_research(session_id)
+        if not saved:
+            raise HTTPException(status_code=404, detail=f"Session {session_id} not found.")
+        return {"session_id": session_id, "status": saved["status"], "provider": saved["provider"],
+                "query": saved["query"], "final_report": saved["report"], "citations": saved["citations"],
+                "quality_score": saved["quality"], "iterations": 0, "plan": saved["plan"]}
     session = _get(session_id)
     if session["status"] == "running":
         return {"status": "running", "message": "Research still in progress."}
@@ -108,9 +125,16 @@ async def session_status(session_id: str) -> dict:
 
 @router.get("/{session_id}/report.pdf")
 async def export_pdf(session_id: str) -> Response:
-    s = _get(session_id)
-    if s["status"] != "complete" or not s.get("final_report"):
+    if session_id in svc.sessions:
+        s = svc.sessions[session_id]
+        report, query, status = s.get("final_report"), s["state"].get("query", ""), s["status"]
+    else:
+        saved = repo.get_research(session_id)
+        if not saved:
+            raise HTTPException(status_code=404, detail=f"Session {session_id} not found.")
+        report, query, status = saved["report"], saved["query"], saved["status"]
+    if status != "complete" or not report:
         raise HTTPException(status_code=409, detail="No completed report to export yet.")
-    pdf = await asyncio.to_thread(generate_pdf, s["final_report"], s["state"].get("query", ""))
+    pdf = await asyncio.to_thread(generate_pdf, report, query)
     return Response(pdf, media_type="application/pdf",
                     headers={"Content-Disposition": f'attachment; filename="report-{session_id[:8]}.pdf"'})

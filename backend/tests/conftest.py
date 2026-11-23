@@ -15,6 +15,28 @@ from app.providers.base import BaseLLM, ProviderHealth
 
 
 @pytest.fixture(autouse=True)
+def isolated_storage(tmp_path, monkeypatch):
+    """Fresh SQLite DB + workspace dir per test; hashing embedder (no model download needed)."""
+    from app.rag import embeddings, vector_store
+    from app.services import repo
+    uploads = tmp_path / "uploads"
+    uploads.mkdir()
+    monkeypatch.setattr(settings, "DB_PATH", tmp_path / "app.db")
+    monkeypatch.setattr(settings, "WORKSPACES_DIR", tmp_path / "workspaces")
+    monkeypatch.setattr(settings, "UPLOAD_DIR", uploads)
+    monkeypatch.setattr(settings, "EMBEDDING_BACKEND", "hashing")
+    # thresholds calibrated for the hashing embedder with scripts/calibrate_thresholds.py (see tests/test_calibration.py)
+    monkeypatch.setattr(settings, "RETRIEVAL_MIN_SIMILARITY", 0.12)
+    monkeypatch.setattr(settings, "RETRIEVAL_STRONG_SIMILARITY", 0.45)
+    monkeypatch.setattr(settings, "EVIDENCE_MIN_TERM_COVERAGE", 0.5)
+    embeddings.reset_embedder()
+    vector_store.clear_registry()
+    repo.init_db()
+    yield
+    vector_store.clear_registry()
+
+
+@pytest.fixture(autouse=True)
 def _clean_state(monkeypatch):
     """Isolate secrets/provider cache/sessions between tests."""
     monkeypatch.setattr(settings, "GEMINI_API_KEY", None)
@@ -109,4 +131,4 @@ def no_web(monkeypatch):
         return [block], [{"title": task, "href": block["source"], "body": block["content"]}]
 
     monkeypatch.setattr(researcher, "_web_search", _fake_web)
-    monkeypatch.setattr(researcher, "get_vector_store", lambda: None)
+    monkeypatch.setattr(researcher, "_has_local_docs", lambda ws: False)
