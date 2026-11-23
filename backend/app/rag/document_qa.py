@@ -240,8 +240,10 @@ def verify_answer(raw: str, sources: dict[str, Source]) -> Verified:
 
 
 def _generate_verified(llm: BaseLLM, messages: list[Message], sources: dict[str, Source],
-                       max_tokens: Optional[int] = None) -> Verified:
+                       max_tokens: Optional[int] = None, on_stage: Optional[StageFn] = None) -> Verified:
     raw = llm.generate(messages, temperature=0.0, max_tokens=max_tokens)
+    if on_stage:
+        on_stage("verifying")                                 # announced only once there is something to verify
     first = verify_answer(raw, sources)
     if first.refused and first.dropped == 0 or first.dropped == 0:
         return first
@@ -293,9 +295,8 @@ def answer_question(workspace_id: str, question: str, *, doc_ids: set[str], llm:
     by_id = {s.id: s for s in srcs}
     user = "EXCERPTS:\n" + "\n".join(_excerpt(s) for s in srcs) + f"\n\nQUESTION: {standalone}"
     stage("generating")
-    verified_msgs = [Message("system", SYSTEM_QA), Message("user", user)]
-    stage("verifying")
-    return _finalize(_generate_verified(llm, verified_msgs, by_id, settings.LLM_MAX_TOKENS), by_id, result)
+    msgs = [Message("system", SYSTEM_QA), Message("user", user)]
+    return _finalize(_generate_verified(llm, msgs, by_id, settings.LLM_MAX_TOKENS, stage), by_id, result)
 
 
 COMPARE_ASPECTS = ["main objective or research question", "methodology and approach", "data, datasets or materials",
@@ -332,8 +333,7 @@ def compare_documents(workspace_id: str, focus: str, *, doc_names: dict[str, str
     task = "Compare these documents overall." if generic else f"Compare these documents with respect to: {focus}"
     stage("generating")
     msgs = [Message("system", SYSTEM_COMPARE), Message("user", "EXCERPTS:\n" + "\n\n".join(blocks) + f"\n\nTASK: {task}")]
-    stage("verifying")
-    v = _generate_verified(llm, msgs, by_id, settings.LLM_MAX_TOKENS)
+    v = _generate_verified(llm, msgs, by_id, settings.LLM_MAX_TOKENS, stage)
     if v.refused:
         return result
     # a heading with no surviving bullet gets an explicit marker instead of silently vanishing

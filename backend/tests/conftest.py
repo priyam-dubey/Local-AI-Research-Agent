@@ -37,6 +37,16 @@ def isolated_storage(tmp_path, monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def _reset_sse_loop_binding():
+    """sse-starlette keeps a module-level shutdown Event bound to the first event loop; every TestClient
+    request runs in a fresh loop, so reset it (production runs a single loop and is unaffected)."""
+    from sse_starlette.sse import AppStatus
+    AppStatus.should_exit_event = None
+    yield
+    AppStatus.should_exit_event = None
+
+
+@pytest.fixture(autouse=True)
 def _clean_state(monkeypatch):
     """Isolate secrets/provider cache/sessions between tests."""
     monkeypatch.setattr(settings, "GEMINI_API_KEY", None)

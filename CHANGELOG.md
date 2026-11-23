@@ -1,5 +1,26 @@
 # Changelog
 
+## v2.0.0-dev — Phases 3–6 (document intelligence, React UI, docs)
+
+### Added
+- **Workspaces & documents**: PDF / DOCX / TXT / Markdown / CSV upload (multi-file, async processing with status),
+  page-aware extraction, chunking with filename/page/location metadata, local embeddings, **one FAISS index per workspace**,
+  deletion with index rebuild, SQLite registry (documents, questions, conversations, research history).
+- **Grounded document QA** with a retrieval evidence gate, constrained prompt, post-generation verification
+  (citations + numbers), metadata-built citations, follow-up question rewriting, prompt-injection hardening.
+- **AI-generated suggested questions** from the document text (deduplicated, answerability-filtered, "generate more").
+- **Multi-document** scopes: one document, all documents, comparison (per-document context).
+- **React + TypeScript + Tailwind UI** (dashboard, document assistant with citations/streaming stages, compare, research
+  with live agent feed, history, settings) — served by FastAPI after `npm run build`.
+- Research agent can use a workspace's documents; irrelevant local results now correctly fall back to the web.
+- `scripts/calibrate_thresholds.py`, CI workflow template (`ci/github-actions.yml`), 136 backend + 18 frontend tests.
+
+### Changed
+- Vector store: LangChain/pickle FAISS → direct FAISS (cosine/IP) per workspace, no pickle files.
+- `/ingest/*` and `/index/*` are deprecated aliases for the `default` workspace; `/ingest/url` is now SSRF-guarded.
+- `langchain-huggingface` replaced by `sentence-transformers` directly; `python-docx` added.
+- Existing v1 FAISS indexes are **not** migrated; re-upload documents.
+
 ## v2.0.0-dev — Phase 1 & 2 (repo restructure + provider abstraction)
 
 ### Added

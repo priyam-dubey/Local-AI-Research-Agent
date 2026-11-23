@@ -279,3 +279,14 @@ def test_multiple_ids_in_one_marker_and_unknown_ids_are_handled():
 def test_markdown_list_items_keep_their_bullets():
     v = _verify("- Uses Adam. [S1]\n- Invented fact.", {"S1": "Adam."})
     assert v.text == "- Uses Adam. [S1]"
+
+
+def test_stages_are_reported_in_the_order_work_actually_happens(ws, paper):
+    order: list[str] = []
+
+    def handler(kind, msgs):
+        order.append(f"llm:{kind}")
+        return f"The research used the MNIST dataset. [{sid_containing(msgs, 'MNIST dataset of handwritten')}]"
+
+    answer_question(ws, "What dataset was used in this research?", doc_ids={paper["id"]}, llm=QALLM(handler), on_stage=order.append)
+    assert order == ["retrieving", "generating", "llm:qa", "verifying"]
