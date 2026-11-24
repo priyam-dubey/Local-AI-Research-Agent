@@ -1,0 +1,30 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+html, body, #root { height: 100%; }
+body { background: radial-gradient(1200px 600px at 70% -10%, rgba(99,102,241,.18), transparent), #070a1c; }
+* { scrollbar-width: thin; scrollbar-color: #2b3170 transparent; }
+
+@layer components {
+  .panel { @apply rounded-2xl border border-white/10 bg-ink-800/70 backdrop-blur; }
+  .btn { @apply inline-flex items-center justify-center gap-2 rounded-xl px-4 py-2 text-sm font-medium transition disabled:cursor-not-allowed disabled:opacity-50; }
+  .btn-primary { @apply btn bg-accent text-white hover:bg-accent-strong; }
+  .btn-ghost { @apply btn border border-white/10 bg-white/5 text-slate-200 hover:bg-white/10; }
+  .input { @apply w-full rounded-xl border border-white/10 bg-ink-900/80 px-3 py-2 text-sm text-slate-100 placeholder-slate-500 outline-none focus:border-accent-soft; }
+}
+
+.md { @apply text-sm leading-relaxed text-slate-200; }
+.md h1 { @apply mb-2 mt-4 text-xl font-semibold text-white; }
+.md h2 { @apply mb-2 mt-4 text-lg font-semibold text-white; }
+.md h3 { @apply mb-1 mt-3 text-base font-semibold text-white; }
+.md p { @apply my-2; }
+.md ul { @apply my-2 list-disc pl-5; }
+.md ol { @apply my-2 list-decimal pl-5; }
+.md li { @apply my-0.5; }
+.md a { @apply text-accent-soft underline; }
+.md code { @apply rounded bg-white/10 px-1 py-0.5 text-xs; }
+.md pre { @apply my-2 overflow-x-auto rounded-lg bg-black/40 p-3; }
+.md table { @apply my-2 w-full border-collapse text-xs; }
+.md th, .md td { @apply border border-white/10 px-2 py-1 text-left; }
+.md blockquote { @apply my-2 border-l-2 border-accent pl-3 text-slate-300; }

@@ -1,352 +1,142 @@
-# 🔬 Local AI Research Agent
+# AI Research & Document Intelligence Platform
 
-> A fully **offline**, production-ready, stateful multi-agent research system powered by **LangGraph**, **LangChain**, **Ollama** (Mistral / Llama 3), and **FAISS** — with zero cloud dependencies.
+One local-first application with two experiences that share the same model-provider layer:
 
-[![Python](https://img.shields.io/badge/Python-3.11+-blue?logo=python)](https://python.org)
-[![LangGraph](https://img.shields.io/badge/LangGraph-0.2.28-green)](https://github.com/langchain-ai/langgraph)
-[![Ollama](https://img.shields.io/badge/Ollama-local%20LLM-orange)](https://ollama.ai)
-[![FastAPI](https://img.shields.io/badge/FastAPI-0.115-teal)](https://fastapi.tiangolo.com)
-[![Streamlit](https://img.shields.io/badge/Streamlit-1.40-red)](https://streamlit.io)
-
----
-
-## ✨ Feature Highlights
-
-| Feature | Details |
+| | |
 |---|---|
-| **Fully Offline** | All LLM inference via local Ollama; embeddings via HuggingFace sentence-transformers |
-| **Stateful Multi-Agent** | 4-node LangGraph StateGraph with typed AgentState shared across all nodes |
-| **Hybrid RAG** | FAISS vector store + DuckDuckGo web search with intelligent routing |
-| **Self-Critique Loop** | Critic agent assigns quality scores and triggers re-research loops |
-| **Multi-format Ingestion** | PDF, TXT, MD, and raw web URLs → chunked → FAISS |
-| **Live Streaming UI** | Streamlit frontend with real-time SSE agent activity feed |
-| **PDF Export** | One-click export of final Markdown reports to clean PDF via ReportLab |
-| **Infinite Loop Guard** | `MAX_ITERATIONS` ceiling in Critic node prevents runaway graph cycles |
+| **AI Research Agent** | A LangGraph team (Planner → Researcher → Writer → Critic) plans, researches (your documents + DuckDuckGo), drafts, self-critiques and exports a PDF report, with live progress. |
+| **Document Intelligence Assistant** | Upload PDF, DOCX, TXT, Markdown and CSV files into workspaces, get AI-generated questions from the real text, chat with follow-ups, search one / all documents or **compare** several — every answer grounded in the files and cited by file + page. |
+
+**You choose the model, explicitly:** *Local (Ollama)* keeps prompts and documents on your machine; *Gemini (Online)* uses Google's API with your own key. The app never switches between them silently. Embeddings (a local HuggingFace model) and the FAISS indexes are always local, whichever LLM you pick.
 
 ---
 
-## 🏗️ Architecture
+## Quick start
 
-```
-╔══════════════════════════════════════════════════════════════════════════╗
-║                     LOCAL AI RESEARCH AGENT                             ║
-║                                                                          ║
-║  ┌─────────────┐    ┌──────────────────────────────────────────────┐    ║
-║  │  Streamlit  │◄──►│              FastAPI Backend                 │    ║
-║  │   ui.py     │    │                 app.py                       │    ║
-║  │             │    │  POST /research  GET /stream  POST /ingest   │    ║
-║  └─────────────┘    └───────────────────┬──────────────────────────┘    ║
-║                                         │                                ║
-║                          ┌──────────────▼───────────────┐               ║
-║                          │      LangGraph StateGraph     │               ║
-║                          │          graph.py             │               ║
-║                          │                               │               ║
-║                          │  START                        │               ║
-║                          │    │                          │               ║
-║                          │    ▼                          │               ║
-║                          │  ┌──────────┐                │               ║
-║                          │  │ PLANNER  │  Decomposes     │               ║
-║                          │  │ planner  │  query → plan   │               ║
-║                          │  └────┬─────┘                │               ║
-║                          │       │                       │               ║
-║                          │       ▼                       │               ║
-║              ┌───────────┤  ┌──────────────┐            │               ║
-║              │  FAISS    │  │  RESEARCHER  │            │               ║
-║              │  Index    │◄─┤  researcher  │            │               ║
-║              │ (local)   │  │  (routes to  │            │               ║
-║              └───────────┤  │  FAISS/DDG)  │            │               ║
-║              ┌───────────┤  └──────┬───────┘            │               ║
-║              │ DuckDuckGo│         │                     │               ║
-║              │  Search   │         │                     │               ║
-║              └───────────┤         ▼                     │               ║
-║                          │  ┌──────────────┐            │               ║
-║                          │  │    WRITER    │  Draft      │               ║
-║                          │  │  (draft)     │  Markdown   │               ║
-║                          │  └──────┬───────┘  Report     │               ║
-║                          │         │                     │               ║
-║                          │         ▼                     │               ║
-║                          │  ┌──────────────┐            │               ║
-║                          │  │    CRITIC    │            │               ║
-║                          │  │   critic     │            │               ║
-║                          │  │  score≥0.6?  │            │               ║
-║                          │  └──────┬───────┘            │               ║
-║                          │    No   │   Yes               │               ║
-║                          │    ▼    │    ▼                │               ║
-║                          │ [loop]  │  ┌──────────────┐  │               ║
-║                          │         │  │    WRITER    │  │               ║
-║                          │         └─►│   (final)    │  │               ║
-║                          │            └──────┬───────┘  │               ║
-║                          │                   │           │               ║
-║                          │                  END          │               ║
-║                          └───────────────────────────────┘               ║
-║                                                                          ║
-║  ┌──────────────────────────────────────────────────────────────────┐   ║
-║  │                      RAG Subsystem                                │   ║
-║  │  PDF/TXT/MD → PyPDFLoader/TextLoader → RecursiveCharacterSplitter│   ║
-║  │  → HuggingFace Embeddings (all-MiniLM-L6-v2) → FAISS Index      │   ║
-║  └──────────────────────────────────────────────────────────────────┘   ║
-╚══════════════════════════════════════════════════════════════════════════╝
-```
-
----
-
-## 📁 Project Structure
-
-```
-AI-Research-Agent/
-├── requirements.txt          # Pinned dependencies
-├── app.py                    # FastAPI gateway + SSE streaming + session mgmt
-├── ui.py                     # Streamlit UI (sidebar upload, live feed, PDF export)
-├── config.py                 # Centralized settings (Pydantic BaseSettings)
-├── state.py                  # AgentState TypedDict with LangGraph reducers
-├── graph.py                  # StateGraph topology: nodes, edges, conditions
-├── agents/
-│   ├── __init__.py
-│   ├── planner.py            # Decomposes query → ordered task checklist
-│   ├── researcher.py         # Routes FAISS/DDG, retrieves, synthesizes
-│   ├── critic.py             # Scores report quality, triggers re-research
-│   └── writer.py             # Generates polished Markdown + citations
-├── rag/
-│   ├── __init__.py
-│   ├── ingestion.py          # PDF/TXT/MD/URL loading + chunking
-│   └── vector_store.py       # FAISS index CRUD + persistence + metadata
-├── data/
-│   ├── uploads/              # Saved user file uploads
-│   ├── faiss_index/          # Persisted FAISS index files
-│   └── reports/              # Exported PDF reports
-└── logs/                     # Loguru rotating log files
-```
-
----
-
-## 🚀 Installation
-
-### Prerequisites
-
-- Python 3.11+
-- Ollama installed and running
-- Windows, Linux, or macOS
-- Internet connection required only for:
-  - downloading Ollama models
-  - downloading HuggingFace embedding models on first run
-  - optional DuckDuckGo web search
-
-### Recommended Hardware
-
-| Configuration | Minimum | Recommended |
-|--------------|----------|-------------|
-| RAM | 8 GB | 16 GB+ |
-| CPU | 4 cores | 6+ cores |
-| Storage | 5 GB free | 10+ GB free |
-| GPU | Not required | Optional |
-
-### Ollama Model Recommendations
-
-| Model | RAM Requirement | Recommendation |
-|---------|----------------|---------------|
-| mistral | ~8 GB | Recommended |
-| llama3:8b | ~8–10 GB | Recommended |
-| gemma:2b | ~4 GB | Best for low-end laptops |
-| phi3:mini | ~4 GB | Lightweight alternative |
-
-**Note:** Systems with only 8 GB RAM may need to close browsers and other applications before running larger models. If Ollama reports memory allocation errors, switch to a smaller model such as `gemma:2b` or `phi3:mini`.
-
-### 1. Clone the repository
+Requirements: Python 3.10+, Node 18+ (for the UI), and either [Ollama](https://ollama.com) or a Gemini API key.
 
 ```bash
-git clone https://github.com/youruser/AI-Research-Agent.git
-cd AI-Research-Agent
-```
-
-### 2. Create virtual environment
-
-```bash
-python -m venv .venv
-source .venv/bin/activate        # Windows: .venv\Scripts\activate
-pip install --upgrade pip
+# 1. Backend
+cd backend
+python -m venv .venv && source .venv/bin/activate        # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
+cp .env.example .env                                     # optional: edit settings
+
+# 2a. Local AI: install Ollama, then
+ollama serve &                                           # if it is not already running
+ollama pull mistral                                      # or llama3, gemma, ...
+
+# 2b. Online AI: get a key at https://aistudio.google.com/ and either
+#     paste it in the app (Model Selection) or set GEMINI_API_KEY in backend/.env
+
+# 3. Frontend
+cd ../frontend
+npm install
+npm run build                                            # the backend will serve it
+cd ../backend && uvicorn app.main:app --port 8000        # open http://localhost:8000
 ```
 
-### 3. Pull the LLM via Ollama
+**Development with hot reload** — two terminals: `cd backend && uvicorn app.main:app --reload` and `cd frontend && npm run dev` → http://localhost:5173 (talks to the API on :8000; override with `VITE_API_URL`).
 
+> The first document upload downloads the embedding model (~90 MB) once. After that, Local mode works offline (except optional web research).
+
+## Using it
+
+1. **Model Selection** (sidebar): *Local Model (Ollama)* or *Gemini (Online)*. For Gemini paste your key → **Validate & save**. The key is sent once to your backend, validated against Google, and held **in backend memory only** — never in the browser.
+2. **Document Assistant**: pick/create a workspace, drag in files (several at once). Status goes *Queued → Processing → Processed*. Suggested questions appear (from the real text; *Generate More* adds new, non-duplicate ones). Click one or type your own.
+3. **Scope**: click a document to ask only about it, or leave none selected to search all. **Compare Documents** tab: tick 2–5 documents for similarities, differences, conflicting findings, methodologies and conclusions.
+4. **New Research**: enter a topic; optionally also use a workspace's documents as local evidence. Watch the agents work, read the report, download the PDF. **Research History** keeps past reports.
+
+## How answers stay grounded (and what that does *not* guarantee)
+
+Defence in depth — the prompt is only one layer:
+
+1. **Retrieval gate before the model is called.** A question needs passages above a similarity threshold *and* its content terms must actually appear in them (or a very strong semantic match). Otherwise the app replies *"I couldn't find this information in the uploaded document."* and **never calls the LLM**.
+2. **Constrained prompt.** Excerpts are delimited, untrusted data; the model must answer only from them, say what is missing, and tag each sentence with an excerpt id. Document text can't forge delimiters or become instructions.
+3. **Verification after generation.** Sentences with no valid citation, an unknown id, or a number that isn't in the cited excerpt are removed; there is one corrective retry; if nothing verifiable remains the answer is a refusal.
+4. **Citations come from retrieved-chunk metadata**, not from model text: file, **page** (PDF), or location (*Section: Methods*, *Rows 26–50*) for formats without real pages. Page numbers are never invented.
+5. **Isolation.** One FAISS index per workspace; document scopes are validated against the workspace; comparison retrieves per document and presents each document's excerpts under its own heading.
+
+Answers are shown **only after verification**; the UI streams *stages* (searching → writing → checking), not unverified tokens.
+
+Limits to be aware of: verification checks citations and numbers, not every claim (a model can still misread a cited passage); names and paraphrased facts are not machine-checked; scanned PDFs need OCR (not supported); small local models cite less reliably, so you may see more "removed statements" warnings.
+
+### Calibrating the thresholds
+Defaults are starting values for `all-MiniLM-L6-v2`. Measure on *your* documents:
 ```bash
-# Start Ollama daemon (if not already running)
-ollama serve
-
-# Pull Mistral 7B (default)
-ollama pull mistral
-
-# OR pull Llama 3 8B
-ollama pull llama3
+cd backend
+python -m scripts.calibrate_thresholds --docs ./my_docs --questions questions.json
+# questions.json: {"answerable": ["..."], "unanswerable": ["..."]}
 ```
+It prints each question's score and suggests settings (false accepts are penalised 3× more than false refusals). The test suite includes a labelled corpus (`backend/tests/fixtures`) showing why *two* signals are used: on it, an unanswerable question out-scored three answerable ones on similarity alone, while term coverage separated them cleanly. Those test thresholds are calibrated for the test embedder, **not** for MiniLM — calibrate before relying on them.
 
-To switch models, edit `config.py`:
-```python
-LLM_MODEL: str = "llama3"   # or "mistral"
-```
+## Configuration (`backend/.env`)
 
-### 4. (Optional) Configure environment
-
-Copy `.env.example` to `.env` and override any defaults:
-
-```bash
-cp .env.example .env
-```
-
-Key variables:
-```
-OLLAMA_BASE_URL=http://localhost:11434
-LLM_MODEL=mistral
-MAX_ITERATIONS=5
-REFLECTION_THRESHOLD=0.6
-```
-
----
-
-## ▶️ Running the System
-
-Open **two terminal windows**:
-
-**Terminal 1 — Start the FastAPI backend:**
-```bash
-python app.py
-# API docs: http://localhost:8000/docs
-```
-
-**Terminal 2 — Start the Streamlit UI:**
-```bash
-streamlit run ui.py
-# Opens: http://localhost:8501
-```
-
----
-
-## ⚠️ Common Issues
-
-### 1. Ollama Memory Allocation Error
-
-Example:
-
-```text
-ggml_backend_cpu_buffer_type_alloc_buffer: failed to allocate buffer
-error loading model
----
-Cause:
-Insufficient available RAM for the selected model.
-
-Solutions:
-1. Close memory-intensive applications.
-2. Restart Ollama.
-3. Switch to a smaller model
-
-##Bash : ollama pull gemma:2b
-
-Then update:
-
-LLM_MODEL = "gemma:2b"
-
-4. Verify available memory:
-
-Windows:
-##Bash
-systeminfo | findstr /C:"Total Physical Memory"
-
-Linux:
-free -h
-
-## 🛠️ Usage Guide
-
-### Ingest Documents (optional)
-1. Open the **sidebar** in the Streamlit UI
-2. Upload PDF/TXT/MD files, paste a URL, or type raw text
-3. Click **Ingest** — chunks are embedded and added to FAISS
-
-### Run Research
-1. Type your research question in the main panel
-2. Click **🚀 Research**
-3. Watch the 4 agents work in real-time:
-   - 🗺️ **Planner** breaks down the query
-   - 🔬 **Researcher** retrieves evidence (local FAISS or web)
-   - 🧐 **Critic** scores quality and may loop back
-   - ✍️ **Writer** produces the final Markdown report
-4. Download the report as a **PDF** with one click
-
-### Direct API Usage
-
-```bash
-# Start a research session
-curl -X POST http://localhost:8000/research \
-  -H "Content-Type: application/json" \
-  -d '{"query": "How does RLHF work in modern LLMs?"}'
-
-# Stream events (SSE)
-curl -N http://localhost:8000/research/{session_id}/stream
-
-# Get final result
-curl http://localhost:8000/research/{session_id}/result
-```
-
----
-
-## ⚙️ Configuration Reference
-
-| Variable | Default | Description |
+| Variable | Default | Meaning |
 |---|---|---|
-| `LLM_MODEL` | `mistral` | Ollama model name |
-| `LLM_TEMPERATURE` | `0.2` | Generation temperature |
-| `MAX_ITERATIONS` | `5` | Hard ceiling on critic re-loop cycles |
-| `REFLECTION_THRESHOLD` | `0.6` | Minimum critic score to proceed |
-| `CHUNK_SIZE` | `1000` | RAG text chunk size (chars) |
-| `CHUNK_OVERLAP` | `200` | Chunk overlap for context continuity |
-| `RETRIEVER_TOP_K` | `6` | FAISS results returned per query |
-| `MAX_SEARCH_RESULTS` | `5` | DuckDuckGo results per sub-task |
-| `EMBED_MODEL` | `sentence-transformers/all-MiniLM-L6-v2` | HuggingFace embedding model |
+| `DEFAULT_PROVIDER` | `ollama` | Used only if a request names no provider. A failing provider is never replaced by the other. |
+| `OLLAMA_BASE_URL`, `LLM_MODEL`, `OLLAMA_TIMEOUT` | `http://localhost:11434`, `mistral`, `300` | Local model. |
+| `GEMINI_API_KEY`, `GEMINI_MODEL`, `GEMINI_TIMEOUT` | – , `gemini-2.5-flash`, `60` | Online model (model names change; check Google's list). |
+| `EMBEDDING_BACKEND`, `EMBED_MODEL` | `hf`, `sentence-transformers/all-MiniLM-L6-v2` | `hashing` is a fake embedder for tests only. |
+| `RETRIEVAL_MIN_SIMILARITY`, `RETRIEVAL_STRONG_SIMILARITY`, `EVIDENCE_MIN_TERM_COVERAGE` | `0.30`, `0.55`, `0.34` | Evidence gate (see above). |
+| `QA_TOP_K`, `CHUNK_SIZE`, `CHUNK_OVERLAP` | `6`, `1000`, `200` | Retrieval/chunking. |
+| `MAX_UPLOAD_MB`, `MAX_UPLOADS_PER_REQUEST` | `50`, `20` | Upload limits. |
+| `MAX_ITERATIONS` | `5` | Critic loop limit for research. |
 
----
+## API
 
-## 🧠 Technical Design Decisions
+Interactive docs: `http://localhost:8000/docs`. Errors are `{"error": {"code", "message", "provider"}}`.
 
-### Preventing Infinite Loops in Cyclic Graphs
-LangGraph's cyclic graphs can theoretically loop forever if the Critic never approves. Two complementary guards prevent this:
-1. **`MAX_ITERATIONS` in `critic_node`**: If `state["iteration"] >= MAX_ITERATIONS`, the critic forcibly sets `needs_more_research=False` and `quality_score=1.0`, bypassing the normal threshold check.
-2. **`_should_continue_research` conditional edge**: Independently checks `iteration >= MAX_ITERATIONS` before routing, ensuring the graph always terminates.
+| Area | Endpoints |
+|---|---|
+| Settings / providers | `GET /settings` · `GET /settings/providers/{ollama\|gemini}/health` · `POST /settings/gemini-key` · `DELETE /settings/gemini-key` · `GET /system/status` |
+| Workspaces | `GET/POST /workspaces` · `DELETE /workspaces/{id}` |
+| Documents | `POST /workspaces/{id}/documents` (multi-file, async processing) · `GET /workspaces/{id}/documents[/{doc}]` · `DELETE /workspaces/{id}/documents/{doc}` |
+| Suggested questions | `GET/POST /workspaces/{id}/questions` |
+| Chat | `POST /workspaces/{id}/chat` · `POST /workspaces/{id}/chat/stream` (SSE: `stage`, `final`, `error`) · `GET /workspaces/{id}/conversations[/{conv}]` · `DELETE …/{conv}` |
+| Research | `POST /research` (`provider`, `model`, `workspace_id`) · `GET /research/{id}/stream` (SSE) · `GET /research/{id}/result` · `GET /research/{id}/report.pdf` · `GET /research` (history) |
+| Legacy (deprecated) | `/ingest/{file,url,text}`, `/index/{status,reset}` → operate on the `default` workspace |
 
-### Hybrid Retrieval Routing
-The Researcher agent uses the local Ollama LLM to classify each sub-task as `"local"` (covered by uploaded documents) or `"web"` (requires live search). If local retrieval returns zero results, it automatically falls back to DuckDuckGo — ensuring no sub-task is left unanswered.
+Chat body: `{"question", "conversation_id?", "provider?", "model?", "scope": {"mode": "document|all|compare", "document_ids": []}}`.
+Answer: `{"answer", "refused", "grounded", "sources": [{"id","filename","page","location","excerpt","score"}], "warnings", "standalone_question", …}`.
 
-### Thread-Safe FAISS
-FastAPI runs an async event loop with background tasks. The FAISS vector store uses a module-level `threading.Lock()` to serialize all index mutations, preventing race conditions when multiple documents are ingested concurrently.
+## Tests
 
-### Context Window Management
-All prompts are trimmed to safe lengths before being sent to Ollama (`evidence_text[:4000]`, `draft_report[:1500]`) to stay within the 8192-token context window of Mistral 7B.
+```bash
+cd backend && pip install pytest && python -m pytest -q     # 136 tests, no Ollama / Gemini key / model download needed
+cd frontend && npm test                                      # 18 component + flow tests (jsdom)
+```
+Gemini is always mocked; Ollama is exercised through a mock HTTP transport; the LangGraph workflow, FAISS, PDF/DOCX parsing, the evidence gate, verification and the HTTP API run for real. A ready-made GitHub Actions workflow that runs both suites is in `ci/github-actions.yml` — copy it to `.github/workflows/ci.yml` (GitHub only lets tokens with the `workflow` scope push files under `.github/workflows/`, so it is shipped outside that folder).
 
-### Persistent Index
-After every `add_documents` call, `vector_store.py` calls `FAISS.save_local()`. On API startup, `load_persisted_index()` restores the previous session's knowledge base automatically.
+## Project layout
 
----
+```
+backend/app/
+  providers/   base.py · ollama_provider.py · gemini_provider.py · factory.py   (one interface, explicit selection)
+  agents/      planner · researcher · writer · critic                           (provider-agnostic)
+  graph.py     LangGraph topology
+  rag/         loaders · ingestion(chunking) · embeddings · vector_store(FAISS/workspace) · retrieval(evidence gate)
+               document_qa (grounded QA + compare) · question_generator · web_loader (SSRF-guarded)
+  services/    repo (SQLite) · document_service · chat_service · research_service · export_service
+  api/routes/  settings · documents · chat · research · system · ingest(legacy)
+  core/        security (secrets, redaction, safe filenames) · errors
+backend/scripts/calibrate_thresholds.py     backend/tests/
+frontend/src/  lib (api, sse, citations) · state · components · pages
+legacy_streamlit_ui.py                      (old UI, kept until you no longer need it)
+```
 
-## 📦 Dependencies (key packages)
+## Security notes
 
-| Package | Version | Purpose |
-|---|---|---|
-| `langgraph` | 0.2.28 | Stateful multi-agent graph orchestration |
-| `langchain` | 0.3.7 | LLM chains, loaders, splitters |
-| `langchain-ollama` | 0.2.0 | Ollama LLM integration |
-| `faiss-cpu` | 1.9.0 | Dense vector similarity search |
-| `sentence-transformers` | 3.2.1 | Local embeddings (all-MiniLM-L6-v2) |
-| `duckduckgo-search` | 6.3.7 | Offline-friendly web search |
-| `fastapi` | 0.115.4 | REST API + SSE streaming backend |
-| `streamlit` | 1.40.1 | Interactive frontend UI |
-| `reportlab` | 4.2.5 | PDF report generation |
+Implemented: server-side-only Gemini key (memory or `.env`), redaction of keys in errors/logs, file-type + **content** sniffing, size limits, safe unique filenames and temp-file cleanup, per-workspace isolation, SSRF-guarded URL import (public hosts only, redirects re-checked), no pickle loading (indexes are `.faiss` + `.npy` + JSON), no raw HTML rendering in the UI, delimiter-hardened prompts for untrusted documents.
 
----
+**Not implemented — do not deploy this for multiple users as is:** there is no authentication or per-user data separation, the Gemini key is global to the server process, and workspace ids are not secret. Run it on localhost. Before any shared deployment add authentication, per-user workspaces/secrets, rate limiting and HTTPS. URL import has a small DNS-rebinding window (resolution is checked, then connected separately).
 
-## 🤝 Contributing
+## Troubleshooting
 
-Pull requests welcome! Please open an issue first for major changes.
+* **"Cannot reach Ollama"** → `ollama serve`; **"model not installed"** → `ollama pull <model>`.
+* **Gemini "invalid key"/"rate limit"** → check the key at aistudio.google.com; rate limits are retried with backoff, then reported.
+* **Document "Failed: No extractable text"** → scanned PDF (no OCR). **"Re-upload the documents"** → the embedding model changed; the workspace was indexed with another one.
+* **Many "Not found" answers** → thresholds too strict for your embedding model/documents; run the calibration script.
+* Research uses DuckDuckGo for web evidence; with Local AI your *document* data stays local, but search queries do go to DuckDuckGo.
 
----
-
-## 📄 License
-
-MIT License — see [LICENSE](LICENSE) for details.
+See `CHANGELOG.md` for what changed from v1.
