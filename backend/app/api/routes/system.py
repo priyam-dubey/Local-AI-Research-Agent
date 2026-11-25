@@ -9,6 +9,7 @@ from fastapi import APIRouter
 from app.config import settings
 from app.core.security import secrets
 from app.providers.ollama_provider import OllamaProvider
+from app.rag.embeddings import embedding_state
 
 router = APIRouter(prefix="/system", tags=["System"])
 
@@ -21,6 +22,7 @@ async def status() -> dict:
         "gemini": {"key_configured": secrets.has_gemini_key(), "model": settings.GEMINI_MODEL},
         "vector_store": {"engine": "faiss", "ready": True},
         "embeddings": {"backend": settings.EMBEDDING_BACKEND,
-                       "model": settings.EMBED_MODEL if settings.EMBEDDING_BACKEND == "hf" else "hashing-384 (testing only)"},
+                       "model": settings.EMBED_MODEL if settings.EMBEDDING_BACKEND == "hf" else "hashing-384 (testing only)",
+                       **embedding_state()},
         "default_provider": settings.DEFAULT_PROVIDER,
     }

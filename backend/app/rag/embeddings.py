@@ -91,5 +91,30 @@ def get_embedder() -> Embedder:
 
 
 def reset_embedder() -> None:
+    global _last_error
     with _lock:
         _cache.clear()
+        _last_error = None
+
+
+_last_error: str | None = None
+
+
+def embedding_state() -> dict:
+    """For the UI: is the local embedding model loaded, or did loading fail (e.g. offline first run)?"""
+    key = (settings.EMBEDDING_BACKEND, settings.EMBED_MODEL, settings.EMBED_DEVICE)
+    with _lock:
+        return {"loaded": key in _cache or settings.EMBEDDING_BACKEND == "hashing", "error": _last_error}
+
+
+def warm_up() -> None:
+    """Load (and, on first run, download) the embedding model so the first upload/question is not slow."""
+    global _last_error
+    from loguru import logger
+    try:
+        emb = get_embedder()
+        _last_error = None
+        logger.info(f"Embedding model ready: {emb.name} (dim {emb.dim}).")
+    except EmbeddingError as exc:
+        _last_error = exc.message
+        logger.warning(f"Embedding model not available yet: {exc.message}")

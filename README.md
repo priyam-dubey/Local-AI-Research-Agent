@@ -38,7 +38,9 @@ cd ../backend && uvicorn app.main:app --port 8000        # open http://localhost
 
 **Development with hot reload** — two terminals: `cd backend && uvicorn app.main:app --reload` and `cd frontend && npm run dev` → http://localhost:5173 (talks to the API on :8000; override with `VITE_API_URL`).
 
-> The first document upload downloads the embedding model (~90 MB) once. After that, Local mode works offline (except optional web research).
+> The embedding model (~90 MB) downloads once, in the background at server start (the sidebar shows *Embeddings: Loading… → Ready*, or the error if you're offline). To fetch it ahead of time: `cd backend && python -m scripts.prefetch_models`. After that, Local mode works offline (except optional web research).
+
+**Upgrading from v1?** Your old pickled index can't be converted, but your original files can be re-indexed: `cd backend && python -m scripts.migrate_v1 --uploads ../data/uploads`.
 
 ## Using it
 
@@ -103,7 +105,7 @@ Answer: `{"answer", "refused", "grounded", "sources": [{"id","filename","page","
 ## Tests
 
 ```bash
-cd backend && pip install pytest && python -m pytest -q     # 136 tests, no Ollama / Gemini key / model download needed
+cd backend && pip install pytest && python -m pytest -q     # 143 tests, no Ollama / Gemini key / model download needed
 cd frontend && npm test                                      # 18 component + flow tests (jsdom)
 ```
 Gemini is always mocked; Ollama is exercised through a mock HTTP transport; the LangGraph workflow, FAISS, PDF/DOCX parsing, the evidence gate, verification and the HTTP API run for real. A ready-made GitHub Actions workflow that runs both suites is in `ci/github-actions.yml` — copy it to `.github/workflows/ci.yml` (GitHub only lets tokens with the `workflow` scope push files under `.github/workflows/`, so it is shipped outside that folder).
@@ -120,7 +122,7 @@ backend/app/
   services/    repo (SQLite) · document_service · chat_service · research_service · export_service
   api/routes/  settings · documents · chat · research · system · ingest(legacy)
   core/        security (secrets, redaction, safe filenames) · errors
-backend/scripts/calibrate_thresholds.py     backend/tests/
+backend/scripts/   calibrate_thresholds · prefetch_models · migrate_v1     backend/tests/
 frontend/src/  lib (api, sse, citations) · state · components · pages
 legacy_streamlit_ui.py                      (old UI, kept until you no longer need it)
 ```
@@ -137,6 +139,7 @@ Implemented: server-side-only Gemini key (memory or `.env`), redaction of keys i
 * **Gemini "invalid key"/"rate limit"** → check the key at aistudio.google.com; rate limits are retried with backoff, then reported.
 * **Document "Failed: No extractable text"** → scanned PDF (no OCR). **"Re-upload the documents"** → the embedding model changed; the workspace was indexed with another one.
 * **Many "Not found" answers** → thresholds too strict for your embedding model/documents; run the calibration script.
+* Web research uses the `ddgs` package (successor of `duckduckgo-search`); if it returns nothing, DuckDuckGo may be rate-limiting you — retry later.
 * Research uses DuckDuckGo for web evidence; with Local AI your *document* data stays local, but search queries do go to DuckDuckGo.
 
 See `CHANGELOG.md` for what changed from v1.

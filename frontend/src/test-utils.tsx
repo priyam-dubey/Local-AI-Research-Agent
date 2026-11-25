@@ -28,7 +28,7 @@ export function sseResponse(events: { event: string; data: unknown }[], chunkSiz
 export const STATUS = {
   ollama: { available: true, detail: 'Ready', model: 'mistral', models: ['mistral:latest', 'llama3:8b'] },
   gemini: { key_configured: false, model: 'gemini-2.5-flash' },
-  vector_store: { engine: 'faiss', ready: true }, embeddings: { backend: 'hf', model: 'all-MiniLM-L6-v2' }, default_provider: 'ollama',
+  vector_store: { engine: 'faiss', ready: true }, embeddings: { backend: 'hf', model: 'all-MiniLM-L6-v2', loaded: true, error: null }, default_provider: 'ollama',
 }
 export const DOC = (over = {}) => ({ id: 'd1', workspace_id: 'default', filename: 'Machine_Learning_Research.pdf', file_type: 'pdf', size_bytes: 2516582, status: 'ready', error: null, pages: 9, chunks: 30, created_at: 1, ...over })
 export const ANSWER = {

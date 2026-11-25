@@ -17,7 +17,7 @@ import time
 from typing import Any
 
 from langchain_core.runnables import RunnableConfig
-from langchain_community.tools import DuckDuckGoSearchResults
+from app.agents.websearch import search_web
 from loguru import logger
 
 from app.config import settings
@@ -44,22 +44,6 @@ Synthesize the provided evidence into a dense, factual answer to the sub-task.
 - Do NOT invent facts not present in the evidence.
 - End with: SOURCES: [comma-separated list of source names]
 """
-
-
-# --------------------------------------------------------------------------- #
-# Singletons                                                                  #
-# --------------------------------------------------------------------------- #
-_search_tool: DuckDuckGoSearchResults | None = None
-
-
-def _get_search() -> DuckDuckGoSearchResults:
-    global _search_tool
-    if _search_tool is None:
-        _search_tool = DuckDuckGoSearchResults(
-            num_results=settings.MAX_SEARCH_RESULTS,
-            output_format="list",
-        )
-    return _search_tool
 
 
 # --------------------------------------------------------------------------- #
@@ -122,44 +106,21 @@ def _local_search(task: str, workspace_id: str | None) -> list[dict]:
 # --------------------------------------------------------------------------- #
 def _web_search(task: str) -> tuple[list[dict], list[dict]]:
     """
-    Run DuckDuckGo search.
-    Returns (research_blocks, web_results).
+    Run a DuckDuckGo search.
+    Returns (research_blocks, web_results). Failures degrade to "no web evidence".
     """
-    search = _get_search()
     try:
-        raw_results = search.run(task)
-        # DuckDuckGoSearchResults with output_format="list" returns a list of dicts
-        if isinstance(raw_results, str):
-            import ast
-            try:
-                raw_results = ast.literal_eval(raw_results)
-            except Exception:
-                raw_results = [{"snippet": raw_results, "title": "Web Result", "link": ""}]
-
-        web_results: list[dict] = []
-        research_blocks: list[dict] = []
-
-        for item in raw_results[:settings.MAX_SEARCH_RESULTS]:
-            if isinstance(item, dict):
-                title = item.get("title", "")
-                link = item.get("link", item.get("href", ""))
-                body = item.get("body", item.get("snippet", ""))
-            else:
-                title, link, body = str(item), "", ""
-
-            web_results.append({"title": title, "href": link, "body": body})
-            research_blocks.append({
-                "content": f"{title}\n{body}",
-                "source": link or title,
-                "score": 1.0,
-                "type": "web",
-            })
-
+        web_results = search_web(task, settings.MAX_SEARCH_RESULTS)
+        research_blocks = [{
+            "content": f"{r['title']}\n{r['body']}".strip(),
+            "source": r["href"] or r["title"],
+            "score": 1.0,
+            "type": "web",
+        } for r in web_results]
         logger.info(f"Web search returned {len(web_results)} results.")
         return research_blocks, web_results
-
     except Exception as exc:
-        logger.error(f"Web search error: {exc}")
+        logger.error(f"Web search error: {type(exc).__name__}: {exc}")
         return [], []
 
 

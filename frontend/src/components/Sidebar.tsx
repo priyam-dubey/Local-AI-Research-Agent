@@ -40,7 +40,12 @@ export default function Sidebar() {
         {statusError ? <p className="text-red-300">Backend unreachable</p> : <>
           <div className="flex items-center justify-between text-slate-400"><span>Ollama</span><span className={status?.ollama.available ? 'text-emerald-400' : 'text-red-400'}>{status ? (status.ollama.available ? 'Online' : 'Offline') : '…'}</span></div>
           <div className="flex items-center justify-between text-slate-400"><span>FAISS</span><span className="text-emerald-400">{status?.vector_store.ready ? 'Ready' : '…'}</span></div>
-          <div className="flex items-center justify-between text-slate-400"><span>Embeddings</span><span className="truncate pl-2 text-slate-300" title={status?.embeddings.model}>{status?.embeddings.backend === 'hashing' ? 'test mode' : 'local'}</span></div>
+          <div className="flex items-center justify-between text-slate-400"><span>Embeddings</span>
+            {status?.embeddings.error
+              ? <span className="truncate pl-2 text-red-400" title={status.embeddings.error}>Error</span>
+              : <span className="truncate pl-2 text-slate-300" title={status?.embeddings.model}>{!status ? '…' : status.embeddings.backend === 'hashing' ? 'Test mode' : status.embeddings.loaded ? 'Ready' : 'Loading…'}</span>}
+          </div>
+          {status?.embeddings.error && <p className="text-[11px] leading-snug text-red-300">{status.embeddings.error}</p>}
         </>}
       </section>
       <p className="px-1 text-xs text-slate-600">v2.0.0</p>

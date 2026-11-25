@@ -13,11 +13,13 @@
 - **React + TypeScript + Tailwind UI** (dashboard, document assistant with citations/streaming stages, compare, research
   with live agent feed, history, settings) — served by FastAPI after `npm run build`.
 - Research agent can use a workspace's documents; irrelevant local results now correctly fall back to the web.
+- Embedding model warm-up at startup with UI status; `scripts/prefetch_models.py`, `scripts/migrate_v1.py`.
 - `scripts/calibrate_thresholds.py`, CI workflow template (`ci/github-actions.yml`), 136 backend + 18 frontend tests.
 
 ### Changed
 - Vector store: LangChain/pickle FAISS → direct FAISS (cosine/IP) per workspace, no pickle files.
 - `/ingest/*` and `/index/*` are deprecated aliases for the `default` workspace; `/ingest/url` is now SSRF-guarded.
+- Web search now uses the maintained `ddgs` package (`duckduckgo-search` is unmaintained/renamed) with a fallback to the legacy one.
 - `langchain-huggingface` replaced by `sentence-transformers` directly; `python-docx` added.
 - Existing v1 FAISS indexes are **not** migrated; re-upload documents.
 

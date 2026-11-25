@@ -6,6 +6,7 @@ Run from the backend/ directory:   uvicorn app.main:app --reload --port 8000
 
 from __future__ import annotations
 
+import threading
 import time
 from contextlib import asynccontextmanager
 
@@ -16,6 +17,7 @@ from loguru import logger
 from app.api.errors import register_error_handlers
 from app.api.routes import chat, documents, ingest, research, settings as settings_routes, system
 from app.config import settings
+from app.rag import embeddings
 from app.services import document_service, repo
 
 
@@ -26,6 +28,7 @@ async def lifespan(_: FastAPI):
     if (n := repo.recover_interrupted()):
         logger.warning(f"{n} document(s) were interrupted by the last shutdown and marked failed.")
     document_service.cleanup_stale_uploads()
+    threading.Thread(target=embeddings.warm_up, name="embedding-warmup", daemon=True).start()
     yield
 
 
