@@ -46,3 +46,6 @@ dist/
 tmp/
 *.tmp
 .streamlit/secrets.toml
+
+# Deployment secrets
+env.yaml

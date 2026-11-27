@@ -42,6 +42,8 @@ cd ../backend && uvicorn app.main:app --port 8000        # open http://localhost
 
 **Upgrading from v1?** Your old pickled index can't be converted, but your original files can be re-indexed: `cd backend && python -m scripts.migrate_v1 --uploads ../data/uploads`.
 
+**Deploying for others / free hosting:** see [`docs/DEPLOY.md`](docs/DEPLOY.md) — set `ACCESS_PASSWORD` first; a `Dockerfile` is included.
+
 ## Using it
 
 1. **Model Selection** (sidebar): *Local Model (Ollama)* or *Gemini (Online)*. For Gemini paste your key → **Validate & save**. The key is sent once to your backend, validated against Google, and held **in backend memory only** — never in the browser.
@@ -83,6 +85,7 @@ It prints each question's score and suggests settings (false accepts are penalis
 | `RETRIEVAL_MIN_SIMILARITY`, `RETRIEVAL_STRONG_SIMILARITY`, `EVIDENCE_MIN_TERM_COVERAGE` | `0.30`, `0.55`, `0.34` | Evidence gate (see above). |
 | `QA_TOP_K`, `CHUNK_SIZE`, `CHUNK_OVERLAP` | `6`, `1000`, `200` | Retrieval/chunking. |
 | `MAX_UPLOAD_MB`, `MAX_UPLOADS_PER_REQUEST` | `50`, `20` | Upload limits. |
+| `ACCESS_PASSWORD`, `COOKIE_SECURE` | – , `auto` | Password gate for deployed instances (sign-in page, signed HttpOnly session cookie, login throttling). Unset = open, for localhost. |
 | `MAX_ITERATIONS` | `5` | Critic loop limit for research. |
 
 ## API
@@ -105,8 +108,8 @@ Answer: `{"answer", "refused", "grounded", "sources": [{"id","filename","page","
 ## Tests
 
 ```bash
-cd backend && pip install pytest && python -m pytest -q     # 143 tests, no Ollama / Gemini key / model download needed
-cd frontend && npm test                                      # 18 component + flow tests (jsdom)
+cd backend && pip install pytest && python -m pytest -q     # 165 tests, no Ollama / Gemini key / model download needed
+cd frontend && npm test                                      # 24 component + flow tests (jsdom)
 ```
 Gemini is always mocked; Ollama is exercised through a mock HTTP transport; the LangGraph workflow, FAISS, PDF/DOCX parsing, the evidence gate, verification and the HTTP API run for real. A ready-made GitHub Actions workflow that runs both suites is in `ci/github-actions.yml` — copy it to `.github/workflows/ci.yml` (GitHub only lets tokens with the `workflow` scope push files under `.github/workflows/`, so it is shipped outside that folder).
 
@@ -131,7 +134,7 @@ legacy_streamlit_ui.py                      (old UI, kept until you no longer ne
 
 Implemented: server-side-only Gemini key (memory or `.env`), redaction of keys in errors/logs, file-type + **content** sniffing, size limits, safe unique filenames and temp-file cleanup, per-workspace isolation, SSRF-guarded URL import (public hosts only, redirects re-checked), no pickle loading (indexes are `.faiss` + `.npy` + JSON), no raw HTML rendering in the UI, delimiter-hardened prompts for untrusted documents.
 
-**Not implemented — do not deploy this for multiple users as is:** there is no authentication or per-user data separation, the Gemini key is global to the server process, and workspace ids are not secret. Run it on localhost. Before any shared deployment add authentication, per-user workspaces/secrets, rate limiting and HTTPS. URL import has a small DNS-rebinding window (resolution is checked, then connected separately).
+**Access control:** an optional single-password gate (`ACCESS_PASSWORD`) protects the whole API for a single-owner deployment. **Not implemented — do not deploy this for multiple users as is:** there are no per-user accounts or data separation, the Gemini key is global to the server process, and workspace ids are not secret. Run it on localhost. Before any shared deployment add authentication, per-user workspaces/secrets, rate limiting and HTTPS. URL import has a small DNS-rebinding window (resolution is checked, then connected separately).
 
 ## Troubleshooting
 

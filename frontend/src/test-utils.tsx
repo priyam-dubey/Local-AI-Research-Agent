@@ -2,7 +2,9 @@ import { vi } from 'vitest'
 
 type Handler = (url: URL, init?: RequestInit) => unknown | Response
 /** Route-based fetch mock: keys are "METHOD /path". */
-export function mockApi(routes: Record<string, Handler>) {
+export function mockApi(overrides: Record<string, Handler>) {
+  // the app asks /auth/status first; by default the mocked server is open (no password)
+  const routes: Record<string, Handler> = { 'GET /auth/status': () => ({ required: false, authenticated: true }), ...overrides }
   const calls: { key: string; body: unknown }[] = []
   vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = new URL(String(input), 'http://localhost')

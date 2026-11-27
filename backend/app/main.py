@@ -10,13 +10,14 @@ import threading
 import time
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import Depends, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from loguru import logger
 
 from app.api.errors import register_error_handlers
-from app.api.routes import chat, documents, ingest, research, settings as settings_routes, system
+from app.api.routes import auth, chat, documents, ingest, research, settings as settings_routes, system
 from app.config import settings
+from app.core.access import require_auth, required as access_required
 from app.rag import embeddings
 from app.services import document_service, repo
 
@@ -37,18 +38,21 @@ app = FastAPI(
     description="Multi-agent research (LangGraph) with a choice of local Ollama or Gemini.",
     version="2.0.0-dev",
     lifespan=lifespan,
+    # when password-protected, do not publish the API schema/docs to the world
+    docs_url=None if access_required() else "/docs",
+    redoc_url=None if access_required() else "/redoc",
+    openapi_url=None if access_required() else "/openapi.json",
 )
 app.add_middleware(
     CORSMiddleware, allow_origins=settings.CORS_ORIGINS, allow_credentials=True,
     allow_methods=["*"], allow_headers=["*"],
 )
 register_error_handlers(app)
-app.include_router(settings_routes.router)
-app.include_router(system.router)
-app.include_router(documents.router)
-app.include_router(chat.router)
-app.include_router(research.router)
-app.include_router(ingest.router)
+# /auth and /health stay open; everything else requires a session when ACCESS_PASSWORD is set.
+app.include_router(auth.router)
+_guard = [Depends(require_auth)]
+for _router in (settings_routes.router, system.router, documents.router, chat.router, research.router, ingest.router):
+    app.include_router(_router, dependencies=_guard)
 
 
 @app.get("/health", tags=["System"])

@@ -1,6 +1,7 @@
 import { HashRouter, Navigate, Route, Routes } from 'react-router-dom'
 import Layout from './components/Layout'
 import { AppProvider } from './state/AppContext'
+import { AuthGate } from './state/AuthContext'
 import Dashboard from './pages/Dashboard'
 import DocumentAssistant from './pages/DocumentAssistant'
 import DocumentsPage from './pages/DocumentsPage'
@@ -10,6 +11,7 @@ import Settings from './pages/Settings'
 
 export default function App() {
   return (
+    <AuthGate>
     <AppProvider>
       <HashRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
         <Routes>
@@ -26,5 +28,6 @@ export default function App() {
         </Routes>
       </HashRouter>
     </AppProvider>
+    </AuthGate>
   )
 }
