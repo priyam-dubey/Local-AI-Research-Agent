@@ -38,7 +38,11 @@ cd ../backend && uvicorn app.main:app --port 8000        # open http://localhost
 
 **Development with hot reload** — two terminals: `cd backend && uvicorn app.main:app --reload` and `cd frontend && npm run dev` → http://localhost:5173 (talks to the API on :8000; override with `VITE_API_URL`).
 
-> The first document upload downloads the embedding model (~90 MB) once. After that, Local mode works offline (except optional web research).
+> The embedding model (~90 MB) downloads once, in the background at server start (the sidebar shows *Embeddings: Loading… → Ready*, or the error if you're offline). To fetch it ahead of time: `cd backend && python -m scripts.prefetch_models`. After that, Local mode works offline (except optional web research).
+
+**Upgrading from v1?** Your old pickled index can't be converted, but your original files can be re-indexed: `cd backend && python -m scripts.migrate_v1 --uploads ../data/uploads`.
+
+**Deploying for others / free hosting:** see [`docs/DEPLOY.md`](docs/DEPLOY.md) — set `ACCESS_PASSWORD` first; a `Dockerfile` is included.
 
 ## Using it
 
@@ -81,6 +85,7 @@ It prints each question's score and suggests settings (false accepts are penalis
 | `RETRIEVAL_MIN_SIMILARITY`, `RETRIEVAL_STRONG_SIMILARITY`, `EVIDENCE_MIN_TERM_COVERAGE` | `0.30`, `0.55`, `0.34` | Evidence gate (see above). |
 | `QA_TOP_K`, `CHUNK_SIZE`, `CHUNK_OVERLAP` | `6`, `1000`, `200` | Retrieval/chunking. |
 | `MAX_UPLOAD_MB`, `MAX_UPLOADS_PER_REQUEST` | `50`, `20` | Upload limits. |
+| `ACCESS_PASSWORD`, `COOKIE_SECURE` | – , `auto` | Password gate for deployed instances (sign-in page, signed HttpOnly session cookie, login throttling). Unset = open, for localhost. |
 | `MAX_ITERATIONS` | `5` | Critic loop limit for research. |
 
 ## API
@@ -103,8 +108,8 @@ Answer: `{"answer", "refused", "grounded", "sources": [{"id","filename","page","
 ## Tests
 
 ```bash
-cd backend && pip install pytest && python -m pytest -q     # 136 tests, no Ollama / Gemini key / model download needed
-cd frontend && npm test                                      # 18 component + flow tests (jsdom)
+cd backend && pip install pytest && python -m pytest -q     # 165 tests, no Ollama / Gemini key / model download needed
+cd frontend && npm test                                      # 24 component + flow tests (jsdom)
 ```
 Gemini is always mocked; Ollama is exercised through a mock HTTP transport; the LangGraph workflow, FAISS, PDF/DOCX parsing, the evidence gate, verification and the HTTP API run for real. A ready-made GitHub Actions workflow that runs both suites is in `ci/github-actions.yml` — copy it to `.github/workflows/ci.yml` (GitHub only lets tokens with the `workflow` scope push files under `.github/workflows/`, so it is shipped outside that folder).
 
@@ -120,7 +125,7 @@ backend/app/
   services/    repo (SQLite) · document_service · chat_service · research_service · export_service
   api/routes/  settings · documents · chat · research · system · ingest(legacy)
   core/        security (secrets, redaction, safe filenames) · errors
-backend/scripts/calibrate_thresholds.py     backend/tests/
+backend/scripts/   calibrate_thresholds · prefetch_models · migrate_v1     backend/tests/
 frontend/src/  lib (api, sse, citations) · state · components · pages
 legacy_streamlit_ui.py                      (old UI, kept until you no longer need it)
 ```
@@ -129,7 +134,7 @@ legacy_streamlit_ui.py                      (old UI, kept until you no longer ne
 
 Implemented: server-side-only Gemini key (memory or `.env`), redaction of keys in errors/logs, file-type + **content** sniffing, size limits, safe unique filenames and temp-file cleanup, per-workspace isolation, SSRF-guarded URL import (public hosts only, redirects re-checked), no pickle loading (indexes are `.faiss` + `.npy` + JSON), no raw HTML rendering in the UI, delimiter-hardened prompts for untrusted documents.
 
-**Not implemented — do not deploy this for multiple users as is:** there is no authentication or per-user data separation, the Gemini key is global to the server process, and workspace ids are not secret. Run it on localhost. Before any shared deployment add authentication, per-user workspaces/secrets, rate limiting and HTTPS. URL import has a small DNS-rebinding window (resolution is checked, then connected separately).
+**Access control:** an optional single-password gate (`ACCESS_PASSWORD`) protects the whole API for a single-owner deployment. **Not implemented — do not deploy this for multiple users as is:** there are no per-user accounts or data separation, the Gemini key is global to the server process, and workspace ids are not secret. Run it on localhost. Before any shared deployment add authentication, per-user workspaces/secrets, rate limiting and HTTPS. URL import has a small DNS-rebinding window (resolution is checked, then connected separately).
 
 ## Troubleshooting
 
@@ -137,6 +142,7 @@ Implemented: server-side-only Gemini key (memory or `.env`), redaction of keys i
 * **Gemini "invalid key"/"rate limit"** → check the key at aistudio.google.com; rate limits are retried with backoff, then reported.
 * **Document "Failed: No extractable text"** → scanned PDF (no OCR). **"Re-upload the documents"** → the embedding model changed; the workspace was indexed with another one.
 * **Many "Not found" answers** → thresholds too strict for your embedding model/documents; run the calibration script.
+* Web research uses the `ddgs` package (successor of `duckduckgo-search`); if it returns nothing, DuckDuckGo may be rate-limiting you — retry later.
 * Research uses DuckDuckGo for web evidence; with Local AI your *document* data stays local, but search queries do go to DuckDuckGo.
 
 See `CHANGELOG.md` for what changed from v1.

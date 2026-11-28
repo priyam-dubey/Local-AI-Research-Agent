@@ -31,7 +31,7 @@ export interface SystemStatus {
   ollama: { available: boolean; detail: string; model: string; models: string[] }
   gemini: { key_configured: boolean; model: string }
   vector_store: { engine: string; ready: boolean }
-  embeddings: { backend: string; model: string }
+  embeddings: { backend: string; model: string; loaded: boolean; error: string | null }
   default_provider: Provider
 }
 

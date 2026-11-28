@@ -1,6 +1,7 @@
 import { BrainCircuit, FolderOpen, History, MessageSquareText, Search, Settings } from 'lucide-react'
 import { NavLink } from 'react-router-dom'
 import { useApp } from '../state/AppContext'
+import { useAuth } from '../state/AuthContext'
 import ModelSelector from './ModelSelector'
 
 const NAV = [
@@ -17,6 +18,7 @@ function Dot({ ok }: { ok: boolean | null }) {
 
 export default function Sidebar() {
   const { status, statusError } = useApp()
+  const { required, signOut } = useAuth()
   return (
     <aside className="flex h-full w-72 shrink-0 flex-col gap-5 overflow-y-auto border-r border-white/10 bg-ink-900/80 p-4">
       <NavLink to="/" className="flex items-center gap-3 px-1 pt-1">
@@ -40,10 +42,16 @@ export default function Sidebar() {
         {statusError ? <p className="text-red-300">Backend unreachable</p> : <>
           <div className="flex items-center justify-between text-slate-400"><span>Ollama</span><span className={status?.ollama.available ? 'text-emerald-400' : 'text-red-400'}>{status ? (status.ollama.available ? 'Online' : 'Offline') : '…'}</span></div>
           <div className="flex items-center justify-between text-slate-400"><span>FAISS</span><span className="text-emerald-400">{status?.vector_store.ready ? 'Ready' : '…'}</span></div>
-          <div className="flex items-center justify-between text-slate-400"><span>Embeddings</span><span className="truncate pl-2 text-slate-300" title={status?.embeddings.model}>{status?.embeddings.backend === 'hashing' ? 'test mode' : 'local'}</span></div>
+          <div className="flex items-center justify-between text-slate-400"><span>Embeddings</span>
+            {status?.embeddings.error
+              ? <span className="truncate pl-2 text-red-400" title={status.embeddings.error}>Error</span>
+              : <span className="truncate pl-2 text-slate-300" title={status?.embeddings.model}>{!status ? '…' : status.embeddings.backend === 'hashing' ? 'Test mode' : status.embeddings.loaded ? 'Ready' : 'Loading…'}</span>}
+          </div>
+          {status?.embeddings.error && <p className="text-[11px] leading-snug text-red-300">{status.embeddings.error}</p>}
         </>}
       </section>
-      <p className="px-1 text-xs text-slate-600">v2.0.0</p>
+      <div className="flex items-center justify-between px-1 text-xs text-slate-600"><span>v2.0.0</span>
+        {required && <button onClick={() => void signOut()} className="text-slate-400 underline hover:text-white">Sign out</button>}</div>
     </aside>
   )
 }

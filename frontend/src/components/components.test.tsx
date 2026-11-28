@@ -1,11 +1,13 @@
 import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import { MemoryRouter } from 'react-router-dom'
 import { describe, expect, it } from 'vitest'
 import { AppProvider } from '../state/AppContext'
 import { ANSWER, mockApi, STATUS } from '../test-utils'
 import Markdown from './Markdown'
 import { AnswerView } from './MessageBubble'
 import ModelSelector from './ModelSelector'
+import Sidebar from './Sidebar'
 
 describe('Markdown', () => {
   it('renders citation markers as chips and calls back with the source id', async () => {
@@ -84,5 +86,33 @@ describe('ModelSelector', () => {
     mockApi({ 'GET /system/status': () => STATUS, 'GET /workspaces': () => [], 'GET /workspaces/default/documents': () => [] })
     render(<AppProvider><ModelSelector /></AppProvider>)
     expect(await screen.findByRole('option', { name: 'llama3:8b' })).toBeInTheDocument()
+  })
+})
+
+
+describe('Sidebar system status', () => {
+  const mount = () => render(<MemoryRouter><AppProvider><Sidebar /></AppProvider></MemoryRouter>)
+  const api = (embeddings: object, ollamaUp = true) => mockApi({
+    'GET /system/status': () => ({ ...STATUS, ollama: { ...STATUS.ollama, available: ollamaUp }, embeddings: { ...STATUS.embeddings, ...embeddings } }),
+    'GET /workspaces': () => [], 'GET /workspaces/default/documents': () => [],
+  })
+
+  it('shows the embedding model loading, then ready', async () => {
+    api({ loaded: false })
+    mount()
+    expect(await screen.findByText('Loading…')).toBeInTheDocument()
+  })
+
+  it('shows a load failure (e.g. offline first run) with the reason', async () => {
+    api({ loaded: false, error: 'Could not load embedding model. Check your internet connection.' })
+    mount()
+    expect(await screen.findByText('Error')).toBeInTheDocument()
+    expect(screen.getByText(/internet connection/)).toBeInTheDocument()
+  })
+
+  it('shows Ollama offline when it is not running', async () => {
+    api({}, false)
+    mount()
+    expect(await screen.findByText('Offline')).toBeInTheDocument()
   })
 })

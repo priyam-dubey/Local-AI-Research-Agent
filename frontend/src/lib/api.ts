@@ -7,6 +7,9 @@ import type {
 export const API_BASE: string =
   (import.meta.env.VITE_API_URL as string | undefined) ?? (import.meta.env.DEV ? 'http://localhost:8000' : '')
 
+/** Fired when any call returns 401 auth_required (e.g. the session expired) so the app can show the login page. */
+export const authEvents = new EventTarget()
+
 export class ApiError extends Error {
   constructor(message: string, public code = 'error', public status = 0) { super(message) }
 }
@@ -22,18 +25,27 @@ function toApiError(status: number, body: unknown): ApiError {
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   let res: Response
   try {
-    res = await fetch(API_BASE + path, init)
+    res = await fetch(API_BASE + path, { credentials: 'include', ...init })
   } catch {
     throw new ApiError('Cannot reach the backend. Is it running on ' + (API_BASE || 'this server') + '?', 'network')
   }
   const body = await res.json().catch(() => null)
-  if (!res.ok) throw toApiError(res.status, body)
+  if (!res.ok) {
+    const err = toApiError(res.status, body)
+    if (err.code === 'auth_required') authEvents.dispatchEvent(new Event('auth-required'))
+    throw err
+  }
   return body as T
 }
 
 const json = (method: string, body?: unknown): RequestInit => ({
   method, headers: { 'Content-Type': 'application/json' }, body: body === undefined ? undefined : JSON.stringify(body),
 })
+
+// ---------------- access (password-protected deployments) ----------------
+export const getAuthStatus = () => request<{ required: boolean; authenticated: boolean }>('/auth/status')
+export const login = (password: string) => request<{ authenticated: boolean }>('/auth/login', json('POST', { password }))
+export const logout = () => request<{ authenticated: boolean }>('/auth/logout', { method: 'POST' })
 
 // ---------------- system & settings ----------------
 export const getSystemStatus = () => request<SystemStatus>('/system/status')
@@ -56,6 +68,7 @@ export function uploadDocuments(ws: string, files: File[], onProgress: (fraction
     files.forEach(f => form.append('files', f))
     const xhr = new XMLHttpRequest()
     xhr.open('POST', `${API_BASE}/workspaces/${ws}/documents`)
+    xhr.withCredentials = true
     xhr.upload.onprogress = e => { if (e.lengthComputable) onProgress(e.loaded / e.total) }
     xhr.onerror = () => reject(new ApiError('Upload failed: cannot reach the backend.', 'network'))
     xhr.onload = () => {
@@ -84,12 +97,16 @@ export interface ChatHandlers { onStage: (stage: string) => void; onFinal: (a: C
 export async function chatStream(ws: string, body: ChatRequest, h: ChatHandlers, signal?: AbortSignal): Promise<void> {
   let res: Response
   try {
-    res = await fetch(`${API_BASE}/workspaces/${ws}/chat/stream`, { ...json('POST', body), signal })
+    res = await fetch(`${API_BASE}/workspaces/${ws}/chat/stream`, { ...json('POST', body), signal, credentials: 'include' })
   } catch (e) {
     if ((e as Error).name === 'AbortError') return
     return h.onError(new ApiError('Cannot reach the backend.', 'network'))
   }
-  if (!res.ok) return h.onError(toApiError(res.status, await res.json().catch(() => null)))
+  if (!res.ok) {
+    const err = toApiError(res.status, await res.json().catch(() => null))
+    if (err.code === 'auth_required') authEvents.dispatchEvent(new Event('auth-required'))
+    return h.onError(err)
+  }
   if (!res.body) return h.onError(new ApiError('The server sent no data.'))
 
   let finished = false
@@ -123,7 +140,7 @@ export const reportPdfUrl = (id: string) => `${API_BASE}/research/${id}/report.p
 
 /** Live agent events. Calls onEnd when the backend sends [COMPLETE] / [ERROR]. */
 export function streamResearch(id: string, onEvent: (e: AgentEvent) => void, onEnd: (status: 'complete' | 'error') => void): () => void {
-  const es = new EventSource(`${API_BASE}/research/${id}/stream`)
+  const es = new EventSource(`${API_BASE}/research/${id}/stream`, { withCredentials: true })
   let ended = false
   es.onmessage = m => {
     const ev = JSON.parse(m.data) as AgentEvent

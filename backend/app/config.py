@@ -50,6 +50,14 @@ class Settings(BaseSettings):
     # Model names change often; override in .env as needed.
     GEMINI_MODEL: str = "gemini-2.5-flash"
     GEMINI_TIMEOUT: float = 60.0
+    # ------------------------------------------------------------------ #
+    #  Access control (REQUIRED for any deployment reachable by others)    #
+    # ------------------------------------------------------------------ #
+    # When set, every API call needs a signed-in session (POST /auth/login). Unset = open (localhost use).
+    ACCESS_PASSWORD: SecretStr | None = None
+    # Session cookie 'Secure' flag: auto = only when the request arrived over HTTPS.
+    COOKIE_SECURE: Literal["auto", "always", "never"] = "auto"
+
     # Upload hardening (applies to every upload endpoint)
     MAX_UPLOAD_MB: int = 50
     MAX_UPLOADS_PER_REQUEST: int = 20
